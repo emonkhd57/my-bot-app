@@ -24,7 +24,7 @@ from telebot import types
 from supabase import create_client, Client
 
 # --- ⚙️ কনফিগারেশন ⚙️ ---
-BOT_TOKEN = "8900873929:AAG4jOaKZVjttyn4Azuzlp9OdNAt7fjMFAY"
+BOT_TOKEN = "8900873929:AAEBZkMA768oTaK4yXAfCA4agQvHkPy3lcU"
 ADMIN_ID = 7036481355  # আপনার অ্যাডমিন আইডি
 CHANNEL_USERNAME = "@helptg100"  # আপনার অফিশিয়াল চ্যানেেলের ইউজারনেম
 
