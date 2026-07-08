@@ -807,7 +807,7 @@ def handle_menu_clicks(message):
             f" 😃 Total Refer Income: {user_data.get('refer_income', 0.0):.2f} BDT\n"
             f"🔗 **আপনার রেফার লিংক:**\n"
             f"`{ref_link}`\n\n"
-            f"ℹ️ আপনি আপনার প্রতিটি রেফারেলের সম্পূর্ণ করা কাজ থেকে আয়ের ১% কমিশন পাবেন আজীবন।\n"
+            f"ℹ️ আপনি আপনার প্রতিটি রেফারেলের সম্পূর্ণ করা কাজ থেকে আয়ের ১০% কমিশন পাবেন আজীবন।\n"
             f"📌 বিস্তারিত জানতে নিচের Rules বাটনে চাপ দিন ⤵️"
         )
         ref_kb = types.InlineKeyboardMarkup(row_width=1)
