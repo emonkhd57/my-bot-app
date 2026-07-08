@@ -286,29 +286,25 @@ def handle_callbacks(call):
             bot.send_message(chat_id, details, reply_markup=tkb, parse_mode="Markdown")
         return
 
-    elif call.data == "show_p_facebook":
-        if not fb_pending_tasks:
-            bot.answer_callback_query(call.id, "📭 ফেসবুকের কোনো পেন্ডিং কাজ নেই।", show_alert=True)
+    if  fb_pending_tasks:
+                bot.send_message(ADMIN_ID, f"🔵 **ফেসবুক পেন্ডিং কাজ:** {len(fb_pending_tasks)} টি")
+                for fb_uid, data in list(fb_pending_tasks.items()):
+                    fkb = types.InlineKeyboardMarkup(row_width=2)
+                    fkb.add(
+                        types.InlineKeyboardButton("✅ Approve", callback_data=f"fb_apr_{fb_uid}"),
+                        types.InlineKeyboardButton("❌ Reject", callback_data=f"fb_rej_{fb_uid}")
+                    )
+                    details = (
+                        f"🏷️ Username: @{data['tg_username']}\n"
+                        f"🆔 User I.D: `{data['user_id']}`\n"
+                        f"👤 First name: {data['first_name']}\n"
+                        f"👤 Last name: {data['last_name']}\n"
+                        f"🔒 Password: `{data['password']}`\n"
+                        f"🔵 Facebook UID: `{fb_uid}`\n"
+                        f"🍪 Cookies:\n`{data.get('cookies', 'No Cookies Submited')}`"
+                    )
+                    bot.send_message(ADMIN_ID, details, reply_markup=fkb, parse_mode="Markdown")
             return
-        bot.answer_callback_query(call.id)
-        for fb_uid, data in list(fb_pending_tasks.items()):
-            fkb = types.InlineKeyboardMarkup(row_width=2)
-            fkb.add(
-                types.InlineKeyboardButton("✅ Approve", callback_data=f"fb_apr_{fb_uid}"),
-                types.InlineKeyboardButton("❌ Reject", callback_data=f"fb_rej_{fb_uid}")
-            )
-            details = (
-                f"📥 **ফেসবুক পেন্ডিং কাজ**\n━━━━━━━━━━━━━━━━━━━━\n"
-                f"🏷️ Username: @{data['tg_username']}\n"
-                f"🆔 User I.D: `{data['user_id']}`\n"
-                f"👤 First name: `{data['first_name']}`\n"
-                f"👤 Last name: `{data['last_name']}`\n"
-                f"🔒 Password: `{data['password']}`\n"
-                f"🔵 Facebook UID: `{fb_uid}`\n"
-                f"🍪 Cookies:\n`{data.get('cookies', 'N/A')}`"
-            )
-            bot.send_message(chat_id, details, reply_markup=fkb, parse_mode="Markdown")
-        return
 
     elif call.data == "show_p_gmail":
         if not gmail_pending_tasks:
