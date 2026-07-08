@@ -1329,4 +1329,5 @@ if __name__ == '__main__':
     threading.Thread(target=run_dummy_server, daemon=True).start()
     
     print("Bot is running perfectly...")
+    bot.remove_webhook()
     bot.infinity_polling()
