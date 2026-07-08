@@ -477,7 +477,7 @@ def handle_callbacks(call):
                     commission = rate * 0.01
                     users_db[ref_id]["balance"] += commission
                     users_db[ref_id]["refer_income"] = users_db[ref_id].get("refer_income", 0.0) + commission
-                    try: bot.send_message(ref_id, f"💰 রেফারেল কমিশন! আপনার রেফার করা মেম্বারের ফেসবুক কাজ থেকে ১% কমিশন (৳{commission:.4f}) অ্যাকাউন্টে যোগ হয়েছে।")
+                    try: bot.send_message(ref_id, f"💰 রেফারেল কমিশন! আপনার রেফার করা মেম্বারের ফেসবুক কাজ থেকে 10% কমিশন (৳{commission:.4f}) অ্যাকাউন্টে যোগ হয়েছে।")
                     except: pass
                     
             history_db["approved"] += 1
