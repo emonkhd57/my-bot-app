@@ -60,14 +60,12 @@ global_config = {
 pending_withdraws = {}
 admin_states = {} 
 
-# --- ক্লাউড ডাটাবেজ লোড ও সেভ ফাংশন ---
 def load_database():
     global users_db, pending_tasks, fb_pending_tasks, gmail_pending_tasks, username_to_id, history_db, global_config, pending_withdraws
     try:
-        response = supabase.table("bot_state").select("*").eq("id", 1).execute()
-        if response.data:
-            data = response.data[0]
-            # সুপাবেজ থেকে জেসন ফরম্যাটে ডাটা ব্যাক আনা এবং ইন্টিজারে কনভার্ট করা
+        doc = db.collection("bot_state").document("1").get()
+        if doc.exists:
+            data = doc.to_dict()
             users_db = {int(k): v for k, v in data.get("users_db", {}).items()}
             pending_tasks = data.get("pending_tasks", {})
             fb_pending_tasks = data.get("fb_pending_tasks", {})
@@ -76,17 +74,18 @@ def load_database():
             history_db = data.get("history_db", {"approved": 0, "rejected": 0})
             global_config = data.get("global_config", global_config)
             pending_withdraws = data.get("pending_withdraws", {})
-            print("🚀 Cloud Data Loaded Successfully From Supabase!")
+            print("🚀 Cloud Data Loaded Successfully From Firebase!")
         else:
             save_database()
     except Exception as e:
         print(f"❌ Error loading cloud database: {e}")
-
 def save_database():
     try:
         # পাইথনের ডিকশনারি ডাটা ক্লাউডে পুশ করা
+        def save_database():
+    try:
         data_to_save = {
-            "users_db": {str(k): v for k, v in users_db.items()}, # Key স্ট্রিং করা জরুরি জেসন এর জন্য
+            "users_db": {str(k): v for k, v in users_db.items()},
             "pending_tasks": pending_tasks,
             "fb_pending_tasks": fb_pending_tasks,
             "gmail_pending_tasks": gmail_pending_tasks,
@@ -95,8 +94,8 @@ def save_database():
             "global_config": global_config,
             "pending_withdraws": pending_withdraws
         }
-        supabase.table("bot_state").upsert({"id": 1, **data_to_save}).execute()
-        print("💾 Data Saved Successfully inside Supabase Cloud!")
+        db.collection("bot_state").document("1").set(data_to_save)
+        print("💾 Data Saved Successfully inside Firebase Cloud!")
     except Exception as e:
         print(f"❌ Error saving cloud database: {e}")
 
