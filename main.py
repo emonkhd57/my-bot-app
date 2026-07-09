@@ -1313,6 +1313,8 @@ def process_2fa_key(message):
 import threading
 from http.server import SimpleHTTPRequestHandler, HTTPServer
 
+# আগের অংশগুলো ঠিক আছে...
+
 def run_dummy_server():
     try:
         server_address = ('', 8080)
@@ -1322,7 +1324,8 @@ def run_dummy_server():
     except Exception as e:
         print(f"Port Server error: {e}")
 
-        if __name__ == '__main__':
+# এই অংশটি খেয়াল করুন (সবগুলো লাইন বাম দিকে একদম মার্জিনের সাথে থাকবে):
+if __name__ == '__main__':
     print("✅ Bot is ready to start...")
     threading.Thread(target=run_dummy_server, daemon=True).start()
     bot.remove_webhook()
