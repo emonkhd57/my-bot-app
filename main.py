@@ -36,10 +36,7 @@ CHANNEL_USERNAME = "@helptg100"  # আপনার অফিশিয়াল চ�
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# --- ☁️ Supabase ক্লাউড ডাটাবেজ কানেকশন ---
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "আপনার_সুপাবেজ_url_এখানে_দিন")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "আপনার_সুপাবেজ_key_এখানে_দিন")
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
 
 # --- ডাটাবেজ গ্লোবাল ভেরিয়েবল ---
 users_db = {}
