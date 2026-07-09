@@ -1322,24 +1322,9 @@ def run_dummy_server():
         httpd.serve_forever()
     except Exception as e:
         print(f"Port Server error: {e}")
-def test_connection():
-    print("🧪 Testing Supabase Connection...")
-    try:
-        # একটি ডামি ডাটা পাঠানো হচ্ছে
-        test_data = {"test_key": "Hello Supabase"}
-        response = supabase.table("bot_state").upsert({"id": 1, "data": {"test_key": "Hello Supabase"}}).execute()
-        print("✅ Connection Test Success! Response:", response)
-    except Exception as e:
-        print("❌ Connection Test Failed! Error:", e)
-if __name__ == '__main__':
-    # test_connection() এর বদলে এটি ব্যবহার করুন
-    print("🧪 Testing Firebase Connection...")
-    try:
-        db.collection("test").document("conn").set({"status": "connected"})
-        print("✅ Firebase Connection Success!")
-    except Exception as e:
-        print(f"❌ Firebase Connection Failed: {e}")
 
+        if __name__ == '__main__':
+    print("✅ Bot is ready to start...")
     threading.Thread(target=run_dummy_server, daemon=True).start()
     bot.remove_webhook()
     bot.infinity_polling()
