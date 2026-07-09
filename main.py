@@ -1328,7 +1328,7 @@ def test_connection():
     try:
         # একটি ডামি ডাটা পাঠানো হচ্ছে
         test_data = {"test_key": "Hello Supabase"}
-        response = supabase.table("bot_state").upsert({"id": 1, "global_config": test_data}).execute()
+        response = supabase.table("bot_state").upsert({"id": 1, "data": {"test_key": "Hello Supabase"}}).execute()
         print("✅ Connection Test Success! Response:", response)
     except Exception as e:
         print("❌ Connection Test Failed! Error:", e)
