@@ -1333,10 +1333,14 @@ def test_connection():
     except Exception as e:
         print("❌ Connection Test Failed! Error:", e)
 if __name__ == '__main__':
-    test_connection()
-    print("Starting background dummy web port...")
+    # test_connection() এর বদলে এটি ব্যবহার করুন
+    print("🧪 Testing Firebase Connection...")
+    try:
+        db.collection("test").document("conn").set({"status": "connected"})
+        print("✅ Firebase Connection Success!")
+    except Exception as e:
+        print(f"❌ Firebase Connection Failed: {e}")
+
     threading.Thread(target=run_dummy_server, daemon=True).start()
-    
-    print("Bot is running perfectly...")
     bot.remove_webhook()
     bot.infinity_polling()
