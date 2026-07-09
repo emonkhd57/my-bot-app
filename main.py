@@ -78,9 +78,6 @@ def load_database():
         print(f"❌ Error loading cloud database: {e}")
 def save_database():
     try:
-        # পাইথনের ডিকশনারি ডাটা ক্লাউডে পুশ করা
-        def save_database():
-    try:
         data_to_save = {
             "users_db": {str(k): v for k, v in users_db.items()},
             "pending_tasks": pending_tasks,
