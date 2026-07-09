@@ -6,10 +6,14 @@ import json
 import re
 import string
 from datetime import datetime
+import telebot
+from telebot import types
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 # --- প্রয়োজনীয় লাইব্রেরি ইনস্টলেশন চেক ---
 def install_packages():
-    required = {"telebot": "pyTelegramBotAPI", "pyotp": "pyotp", "supabase": "supabase"}
+    required = {"telebot": "pyTelegramBotAPI", "pyotp": "pyotp", "firebase_admin": "firebase-admin"}
     for module_name, package_name in required.items():
         try:
             __import__(module_name)
@@ -19,10 +23,12 @@ def install_packages():
 install_packages()
 
 import pyotp
-import telebot
-from telebot import types
-from supabase import create_client, Client
 
+# --- Firebase কানেকশন ---
+service_account_info = json.loads(os.environ.get('FIREBASE_JSON'))
+cred = credentials.Certificate(service_account_info)
+firebase_admin.initialize_app(cred)
+db = firestore.client()
 # --- ⚙️ কনফিগারেশন ⚙️ ---
 BOT_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 ADMIN_ID = 7036481355  # আপনার অ্যাডমিন আইডি
