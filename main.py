@@ -89,7 +89,7 @@ def save_database():
             "global_config": global_config,
             "pending_withdraws": pending_withdraws
         }
-        supabase.table("bot_state").update(data_to_save).eq("id", 1).execute()
+        supabase.table("bot_state").upsert({"id": 1, **data_to_save}).execute()
         print("💾 Data Saved Successfully inside Supabase Cloud!")
     except Exception as e:
         print(f"❌ Error saving cloud database: {e}")
