@@ -1333,6 +1333,7 @@ def test_connection():
     except Exception as e:
         print("❌ Connection Test Failed! Error:", e)
 if __name__ == '__main__':
+    test_connection()
     print("Starting background dummy web port...")
     threading.Thread(target=run_dummy_server, daemon=True).start()
     
