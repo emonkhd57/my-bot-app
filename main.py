@@ -166,26 +166,34 @@ def send_join_request(chat_id):
     bot.send_message(chat_id, msg_text, reply_markup=join_kb)
 
 def get_combined_menu(user_id):
-    # ReplyKeyboardMarkup এর বদলে InlineKeyboardMarkup ব্যবহার করুন
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    
+    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     if user_id == ADMIN_ID:
-        # অ্যাডমিন বাটনগুলো (ইচ্ছেমতো ইমোজি যোগ করতে পারেন)
         markup.add(
-            types.InlineKeyboardButton("📋 Pending", callback_data='pending'),
-            types.InlineKeyboardButton("⚙️ Change Pass", callback_data='pass'),
-            types.InlineKeyboardButton("✅ Approval", callback_data='app'),
-            types.InlineKeyboardButton("❌ Rejected", callback_data='rej')
+            types.KeyboardButton("📋 Pending Tasks/"),
+            types.KeyboardButton("⚙️ Change Task Pass"),
+            types.KeyboardButton("⚙️ Change Rate/"),
+            types.KeyboardButton("✅ Approval All /"),
+            types.KeyboardButton("❌ Rejected All /"),
+            types.KeyboardButton("📊 Dashboard >"),
+            types.KeyboardButton("🔧 Task Switch/"),
+            types.KeyboardButton("💰 addbalance/"),
+            types.KeyboardButton("📉 cutbalance/"),
+            types.KeyboardButton("🚫 banuser/"),
+            types.KeyboardButton("🔒 unbanuser/"),
+            types.KeyboardButton("🔍 Search User/"),
+            types.KeyboardButton("📢 Broadcast/"),
+            types.KeyboardButton("🏧 Withdraw Request/"),
+            types.KeyboardButton("📋 User list /"),
+            types.KeyboardButton("📊 Sit list >")
         )
     else:
-        # ইউজার বাটনগুলো (এগুলোতে আপনার পছন্দমতো রঙ/ইমোজি আছে)
         markup.add(
-            types.InlineKeyboardButton("🔴 📋 কাজ ▸", callback_data='work'),
-            types.InlineKeyboardButton("🟢 💸 ব্যালেন্স ▸", callback_data='balance'),
-            types.InlineKeyboardButton("🔵 💰 টাকা উত্তোলন ▸", callback_data='withdraw'),
-            types.InlineKeyboardButton("🟣 🎁 My Referrals ▸", callback_data='referrals'),
-            types.InlineKeyboardButton("🟡 🎧 সাপোর্ট ▸", callback_data='support'),
-            types.InlineKeyboardButton("🟠 🐣 আমি নতুন ▸", callback_data='new_user')
+            types.KeyboardButton("📝 কাজ ▸"),
+            types.KeyboardButton("💰 ব্যালেন্স >"),
+            types.KeyboardButton("💸 টাকা উত্তোলন >"),
+            types.KeyboardButton("🎁 My Referral >"),
+            types.KeyboardButton("💬 সাপোর্ট >"),
+            types.KeyboardButton("🐣 আমি নতুন")
         )
     return markup
 
