@@ -1323,7 +1323,15 @@ def run_dummy_server():
         httpd.serve_forever()
     except Exception as e:
         print(f"Port Server error: {e}")
-
+def test_connection():
+    print("🧪 Testing Supabase Connection...")
+    try:
+        # একটি ডামি ডাটা পাঠানো হচ্ছে
+        test_data = {"test_key": "Hello Supabase"}
+        response = supabase.table("bot_state").upsert({"id": 1, "global_config": test_data}).execute()
+        print("✅ Connection Test Success! Response:", response)
+    except Exception as e:
+        print("❌ Connection Test Failed! Error:", e)
 if __name__ == '__main__':
     print("Starting background dummy web port...")
     threading.Thread(target=run_dummy_server, daemon=True).start()
