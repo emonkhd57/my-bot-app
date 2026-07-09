@@ -181,9 +181,14 @@ def get_combined_menu(user_id):
         markup.add(types.KeyboardButton("🏧 Withdraw Request/"), types.KeyboardButton("📋 User list /"))
         markup.add(types.KeyboardButton("📊 Sit list >"))
     else:
-        markup.add(types.KeyboardButton("📝 কাজ ▶"), types.KeyboardButton("💵 ব্যালেন্স >"))
-        markup.add(types.KeyboardButton("💰 টাকা উত্তোলন >"), types.KeyboardButton("🎁 My Referrals >"))
-        markup.add(types.KeyboardButton("💬 সাপোর্ট >"), types.KeyboardButton("👶 আমি নতুন"))
+        markup.add(
+            types.InlineKeyboardButton("🔴 📋 কাজ ▸", callback_data='work'),
+            types.InlineKeyboardButton("🟢 💸 ব্যালেন্স ▸", callback_data='balance'),
+            types.InlineKeyboardButton("🔵 💰 টাকা উত্তোলন ▸", callback_data='withdraw'),
+            types.InlineKeyboardButton("🟣 🎁 My Referrals ▸", callback_data='referrals'),
+            types.InlineKeyboardButton("🟡 🎧 সাপোর্ট ▸", callback_data='support'),
+            types.InlineKeyboardButton("🟠 🐣 আমি নতুন ▸", callback_data='new_user')
+        )
     return markup
 
 # --- ইউজার ডেটা না মুছে বট রিস্টার্ট বাটন বা কমান্ড ---
