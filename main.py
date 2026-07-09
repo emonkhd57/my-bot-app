@@ -166,21 +166,19 @@ def send_join_request(chat_id):
     bot.send_message(chat_id, msg_text, reply_markup=join_kb)
 
 def get_combined_menu(user_id):
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    # ReplyKeyboardMarkup এর বদলে InlineKeyboardMarkup ব্যবহার করুন
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    
     if user_id == ADMIN_ID:
-        markup.add(types.KeyboardButton("📋 Pending Tasks/"))
-        markup.add(types.KeyboardButton("⚙️ Change Task Pass"))
-        markup.add(types.KeyboardButton("⚙️ Change Rate/"))
-        markup.add(types.KeyboardButton("✅ Approval All /"))
-        markup.add(types.KeyboardButton("❌ Rejected All /"))
-        
-        markup.add(types.KeyboardButton("📊 Dashboard >"), types.KeyboardButton("🔧 Task Switch/"))
-        markup.add(types.KeyboardButton("💰 addbalance/"), types.KeyboardButton("📉 cutbalance/"))
-        markup.add(types.KeyboardButton("🚫 banuser/"), types.KeyboardButton("🔓 unbanuser/"))
-        markup.add(types.KeyboardButton("🔍 Search User/"), types.KeyboardButton("📢 Broadcast/"))
-        markup.add(types.KeyboardButton("🏧 Withdraw Request/"), types.KeyboardButton("📋 User list /"))
-        markup.add(types.KeyboardButton("📊 Sit list >"))
+        # অ্যাডমিন বাটনগুলো (ইচ্ছেমতো ইমোজি যোগ করতে পারেন)
+        markup.add(
+            types.InlineKeyboardButton("📋 Pending", callback_data='pending'),
+            types.InlineKeyboardButton("⚙️ Change Pass", callback_data='pass'),
+            types.InlineKeyboardButton("✅ Approval", callback_data='app'),
+            types.InlineKeyboardButton("❌ Rejected", callback_data='rej')
+        )
     else:
+        # ইউজার বাটনগুলো (এগুলোতে আপনার পছন্দমতো রঙ/ইমোজি আছে)
         markup.add(
             types.InlineKeyboardButton("🔴 📋 কাজ ▸", callback_data='work'),
             types.InlineKeyboardButton("🟢 💸 ব্যালেন্স ▸", callback_data='balance'),
