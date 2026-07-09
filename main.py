@@ -76,6 +76,7 @@ def load_database():
             save_database()
     except Exception as e:
         print(f"❌ Error loading cloud database: {e}")
+
 def save_database():
     try:
         data_to_save = {
@@ -93,9 +94,7 @@ def save_database():
     except Exception as e:
         print(f"❌ Error saving cloud database: {e}")
 
-# প্রথমবার বটের ডাটা সুপাবেজ থেকে লোড করা
-load_database()
-
+# ফাংশনটি ডিফাইন করার পর একটি খালি লাইন রাখুন
 # স্টেট ও সেশন ট্র্যাকিং ডাটা
 user_current_acc = {}
 user_withdraw_session = {}
