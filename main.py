@@ -600,7 +600,7 @@ def handle_menu_clicks(message):
         help_kb.add(types.InlineKeyboardButton("📢 অফিশিয়াল চ্যানেল", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}"))
         bot.send_message(
             message.chat.id, 
-            "কাজের ভিডিও বা কাজ নিয়ে যত কিছু প্রশ্ন আসে সব আমাদের অফিসিয়াল চ্যানেলে পাওয়া যাবে।", 
+            "কাজের ভিডিও☺️ বা কাজ নিয়ে যত কিছু প্রশ্ন আসে সব আমাদের অফিসিয়াল চ্যানেলে পাওয়া যাবে।✅", 
             reply_markup=help_kb
         )
         return
