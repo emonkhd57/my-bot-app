@@ -1136,7 +1136,7 @@ def user_withdraw_get_amount(message):
     try:
         amount = float(message.text.strip())
         udata = users_db[uid]
-        min_required = 105.0  
+        min_required = 55.0  
         full_deduction = amount 
 
         if amount < min_required:
