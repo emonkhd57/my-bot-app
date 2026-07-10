@@ -1328,7 +1328,8 @@ def run_dummy_server():
 
 # এই অংশটি খেয়াল করুন (সবগুলো লাইন বাম দিকে একদম মার্জিনের সাথে থাকবে):
 if __name__ == '__main__':
-    print("✅ Bot is ready to start...")
+    print("✅ Bot is starting and loading data...")
+    load_database() # এখানে ডাটা লোড নিশ্চিত করুন
     threading.Thread(target=run_dummy_server, daemon=True).start()
     bot.remove_webhook()
     bot.infinity_polling()
