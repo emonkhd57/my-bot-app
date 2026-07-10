@@ -1124,7 +1124,7 @@ def user_withdraw_get_number(message):
     
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
     markup.add(types.KeyboardButton("❌ বাতিল"))
-    msg = bot.send_message(message.chat.id, "💵 **কত টাকা তুলতে চান তা সংখ্যায় লিখুন (ন্যূনতম ১০০ টাকা):**", reply_markup=markup)
+    msg = bot.send_message(message.chat.id, "💵 **কত টাকা তুলতে চান তা সংখ্যায় লিখুন (ন্যূনতম ৫৫ টাকা):**", reply_markup=markup)
     bot.register_next_step_handler(msg, user_withdraw_get_amount)
 
 def user_withdraw_get_amount(message):
@@ -1136,7 +1136,7 @@ def user_withdraw_get_amount(message):
     try:
         amount = float(message.text.strip())
         udata = users_db[uid]
-        min_required = 100.0  
+        min_required = 105.0  
         full_deduction = amount 
 
         if amount < min_required:
