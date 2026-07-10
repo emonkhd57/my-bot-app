@@ -1329,7 +1329,16 @@ def run_dummy_server():
 # এই অংশটি খেয়াল করুন (সবগুলো লাইন বাম দিকে একদম মার্জিনের সাথে থাকবে):
 if __name__ == '__main__':
     print("✅ Bot is starting and loading data...")
-    load_database() # এখানে ডাটা লোড নিশ্চিত করুন
+    load_database() 
+    
+    # ব্যাকগ্রাউন্ড সার্ভার চালু করা
     threading.Thread(target=run_dummy_server, daemon=True).start()
+    
+    print("🚀 Bot is polling...")
     bot.remove_webhook()
-    bot.infinity_polling()
+    
+    # ইনফিনিটি পোলিং-এর কনফ্লিক্ট এড়াতে
+    try:
+        bot.infinity_polling(timeout=60, long_polling_timeout=60)
+    except Exception as e:
+        print(f"❌ Polling Error: {e}")
