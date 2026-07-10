@@ -597,7 +597,11 @@ def handle_menu_clicks(message):
 
     if text == "👶 আমি নতুন":
         help_kb = types.InlineKeyboardMarkup(row_width=1)
-        help_kb.add(types.InlineKeyboardButton("📢 অফিশিয়াল চ্যানেল", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}"))
+        help_kb.add(
+            types.InlineKeyboardButton("Facebook Cookies কাজের ভিডিও ☺️✅", url="YOUR_VIDEO_LINK_HERE"),
+            types.InlineKeyboardButton("Instagram 2FA কাজের ভিডিও ☺️✅", url="YOUR_VIDEO_LINK_HERE"),
+            types.InlineKeyboardButton("📢 অফিশিয়াল চ্যানেল", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}")
+        )
         bot.send_message(
             message.chat.id, 
             "কাজের ভিডিও☺️ বা কাজ নিয়ে যত কিছু প্রশ্ন আসে সব আমাদের অফিসিয়াল চ্যানেলে পাওয়া যাবে।✅", 
