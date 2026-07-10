@@ -820,8 +820,8 @@ def handle_menu_clicks(message):
     elif text == "💰 টাকা উত্তোলন >":
         method_kb = types.InlineKeyboardMarkup(row_width=1)
         method_kb.add(
-            types.InlineKeyboardButton(" bKash বিকাশ ৳ -> সর্বনিম্ন: ১০০৳", callback_data="method_bkash"),
-            types.InlineKeyboardButton(" Nagad নগদ ৳ -> সর্বনিম্ন: ১০০৳", callback_data="method_nagad"),
+            types.InlineKeyboardButton(" bKash বিকাশ ৳ -> সর্বনিম্ন: ৫৫৳", callback_data="method_bkash"),
+            types.InlineKeyboardButton(" Nagad নগদ ৳ -> সর্বনিম্ন: ৫৫৳", callback_data="method_nagad"),
             types.InlineKeyboardButton("⬅️ ফিরে যান", callback_data="check_join_status")
         )
         withdraw_msg = "📥 **টাকা তোলার মাধ্যম সিলেক্ট করুন:**"
