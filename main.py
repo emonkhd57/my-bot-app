@@ -245,7 +245,7 @@ def handle_callbacks(call):
         method_name = "bKash" if call.data == "method_bkash" else "Nagad"
         
         if users_db[uid]["balance"] < 100.0:
-            bot.answer_callback_query(call.id, f"❌ টাকা তোলা যাবে না! আপনার অ্যাকাউন্টে ন্যূনতম ১০০৳ থাকতে হবে।", show_alert=True)
+            bot.answer_callback_query(call.id, f"❌ টাকা তোলা যাবে না! আপনার অ্যাকাউন্টে ন্যূনতম ৫৫৳ থাকতে হবে।", show_alert=True)
             return
             
         bot.answer_callback_query(call.id)
