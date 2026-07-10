@@ -599,7 +599,7 @@ def handle_menu_clicks(message):
         help_kb = types.InlineKeyboardMarkup(row_width=1)
         help_kb.add(
             types.InlineKeyboardButton("Facebook Cookies কাজের ভিডিও ☺️✅", url="YOUR_VIDEO_LINK_HERE"),
-            types.InlineKeyboardButton("Instagram 2FA কাজের ভিডিও ☺️✅", url="YOUR_VIDEO_LINK_HERE"),
+            types.InlineKeyboardButton("Instagram 2FA কাজের ভিডিও ☺️✅", url="https://t.me/instanttaka_bot?start=7344393436"),
             types.InlineKeyboardButton("📢 অফিশিয়াল চ্যানেল", url=f"https://t.me/{CHANNEL_USERNAME.replace('@','')}")
         )
         bot.send_message(
