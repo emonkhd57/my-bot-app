@@ -73,7 +73,7 @@ def load_database():
             pending_withdraws = data.get("pending_withdraws", {})
             print("🚀 Cloud Data Loaded Successfully From Firebase!")
         else:
-            save_database()
+            print("⚠️ Database document missing. Starting with empty database.")
     except Exception as e:
         print(f"❌ Error loading cloud database: {e}")
 
