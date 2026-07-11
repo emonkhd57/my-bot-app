@@ -861,8 +861,8 @@ def handle_menu_clicks(message):
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
         markup.add(types.KeyboardButton("Send UID"), types.KeyboardButton("❓ কিভাবে কাজ করব"), types.KeyboardButton("❌ বাতিল"))
         
-        msg_text = f"👤 First name: {first_name}\n👤 Last name: {last_name}\n🔒 Password: {password}\n\n📱 উপরের তথ্য দিয়ে অ্যাকাউন্ট খুলে নিচে Send UID বাটনে চাপ দিন😁"
-        bot.send_message(message.chat.id, msg_text, reply_markup=markup)
+        msg_text = f"👤 First name: `{''.join(first_name.split())}`\n👤 Last name: `{''.join(last_name.split())}`\n🔑 Password: `{password}`\n\n👆 উপরের তথ্য দিয়ে অ্যাকাউন্ট খুলে নিচে Send UID বাটনে চাপ দিন😁"
+        bot.send_message(message.chat.id, msg_text, parse_mode="Markdown", reply_markup=markup)
 
     elif text == "Send UID" and global_config.get("status_facebook", True):
         if uid not in user_fb_session:
