@@ -262,7 +262,6 @@ def handle_callbacks(call):
         markup = types.InlineKeyboardMarkup(row_width=1)
         markup.add(
             types.InlineKeyboardButton("📸 Instagram কাজ pending", callback_data="show_p_instagram"),
-            types.InlineKeyboardButton("📧 Gmail কাজ pending", callback_data="show_p_gmail"),
             types.InlineKeyboardButton("🔵 Facebook কাজ pending", callback_data="show_p_facebook"),
             types.InlineKeyboardButton("❌ Cancel", callback_data="close_admin_inline")
         )
