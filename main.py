@@ -70,8 +70,8 @@ DEFAULT_PAYMENT_METHODS = {
 }
 
 # ==================== SUPPORT & DEVELOPER LINKS ====================
-SUPPORT_LINK = "https://t.me/BLACKCHATMK"
-DEVELOPER_LINK = "https://t.me/Cyber982"
+SUPPORT_LINK = "https://t.me/helptg100"
+
 
 request_queue = asyncio.Queue()
 MAX_WORKERS = 5000
