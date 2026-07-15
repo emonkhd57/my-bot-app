@@ -1252,8 +1252,8 @@ async def monitor_loop(app):
                         )
                         group_buttons = InlineKeyboardMarkup([
                             [
-                                InlineKeyboardButton("‼️ PANEL", url="https://t.me/VoltXSMS1Bot", style="danger"),
-                                InlineKeyboardButton("📢 CHANNEL", url="https://t.me/hunterxvoltx", style="success")
+                                InlineKeyboardButton("‼️ PANEL", url="@emotpx_bot", style="danger"),
+                                InlineKeyboardButton("📢 CHANNEL", url="https://t.me/helptg100", style="success")
                             ]
                         ])
                         try:
