@@ -1,8 +1,10 @@
 import logging
 import os
 import json
+import threading
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import firebase_admin
 from firebase_admin import credentials, firestore
 import requests
@@ -13,13 +15,13 @@ API_KEY = os.getenv('API_KEY')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
 BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tnemn/@public/api"
 
-# --- Firebase Setup (Render এনভায়রনমেন্ট থেকে) ---
+# --- Firebase Setup ---
 firebase_json = json.loads(os.getenv('FIREBASE_JSON'))
 cred = credentials.Certificate(firebase_json)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# --- বাকি কোড ---
+# --- মেইন ফাংশনাল হ্যান্ডলার ---
 async def get_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     url = f"{BASE_URL}/getnum"
@@ -40,7 +42,6 @@ async def get_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ দুঃখিত, বর্তমানে কোনো নাম্বার নেই।")
 
-# --- ওটিপি ফরওয়ার্ডিং (অটোমেশন) ---
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     url = f"{BASE_URL}/success-otp"
     headers = {"mauthapi": API_KEY}
@@ -60,7 +61,27 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Error: {e}")
 
-# --- এডমিন ফিচারস ---
+# --- এডমিন প্যানেল সিস্টেম ---
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id == ADMIN_ID:
+        keyboard = [
+            [InlineKeyboardButton("💰 বোনাস আপডেট", callback_data="set_bonus")],
+            [InlineKeyboardButton("📢 ব্রডকাস্ট", callback_data="broadcast")],
+            [InlineKeyboardButton("👥 ইউজার লিস্ট", callback_data="user_list")]
+        ]
+        await update.message.reply_text("👑 অ্যাডমিন প্যানেল:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.data == "set_bonus":
+        await query.edit_message_text("ব্যবহার করুন: /setbonus <amount>")
+    elif query.data == "broadcast":
+        await query.edit_message_text("ব্যবহার করুন: /broadcast <message>")
+    elif query.data == "user_list":
+        users = db.collection('users').stream()
+        count = sum(1 for _ in users)
+        await query.edit_message_text(f"📊 মোট ব্যবহারকারী: {count}")
+
 async def set_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id == ADMIN_ID:
         try:
@@ -75,20 +96,16 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = " ".join(context.args)
         users = db.collection('users').stream()
         for user in users:
-            try: await context.bot.send_message(chat_id=user.id, text=msg)
+            try: await context.bot.send_message(chat_id=int(user.id), text=msg)
             except: continue
         await update.message.reply_text("✅ ব্রডকাস্ট সম্পন্ন হয়েছে।")
 
 # --- মেইন মেনু ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.collection('users').document(str(update.effective_user.id)).set({'id': update.effective_user.id}, merge=True)
-    keyboard = [["🎭 নাম্বার নিন", "💸 ব্যালেন্স"], ["💰 টাকা উত্তোলন", "🎁 My Referrals"], ["🧐 সাপোর্ট", "👶 আমি নতুন"], ["🏆 লিডারবোর্ড"]]
+    keyboard = [["🎭 নাম্বার নিন", "💸 ব্যালেন্স"], ["💰 টাকা উত্তোলন", "🎁 My Referrals"], ["🧐 সাপোর্ট"]]
     await update.message.reply_text("👋 স্বাগতম! নিচে ক্লিক করুন:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
 
-import threading
-from http.server import HTTPServer, SimpleHTTPRequestHandler
-
-# --- সার্ভার রান করার ফাংশন ---
 def run_dummy_server():
     try:
         server_address = ('', 8080)
@@ -98,17 +115,15 @@ def run_dummy_server():
     except Exception as e:
         print(f"Port Server error: {e}")
 
-# --- রানার সেকশন ---
 if __name__ == '__main__':
-    # ১. পোর্ট সার্ভার চালু করা (এটি কল করা জরুরি!)
     threading.Thread(target=run_dummy_server, daemon=True).start()
     
-    # ২. বট অ্যাপ্লিকেশন তৈরি
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # ৩. জব কিউ এবং হ্যান্ডলার
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CallbackQueryHandler(admin_callback))
     app.add_handler(CommandHandler("setbonus", set_bonus))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(MessageHandler(filters.Text(["🎭 নাম্বার নিন"]), get_number))
