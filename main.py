@@ -44,8 +44,8 @@ def save_database():
 
 # ==================== CONFIG SECTION ====================
 BOT_TOKEN = "8747963961:AAF-If960VRwEjH_P3Ar6sFgFsP41oajP9M"
-API_KEY = "M48R9YJS4ES"
-BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tnevs/@public/api"
+API_KEY = "YXdtiltmc3RFkGFIX4ZQi0Jnj0WFkW1ieXeEWWZ4k4A="
+BASE_URL = "http://51.77.216.195/crapi/lamix/viewstats"
 HEADERS = {"mauthapi": API_KEY, "Content-Type": "application/json"}
 
 # Firestore Collection Names (JSON ফাইলের পরিবর্তে এগুলো ব্যবহার করবেন)
