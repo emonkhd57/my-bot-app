@@ -85,11 +85,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [["🎭 নাম্বার নিন", "💸 ব্যালেন্স"], ["💰 টাকা উত্তোলন", "🎁 My Referrals"], ["🧐 সাপোর্ট", "👶 আমি নতুন"], ["🏆 লিডারবোর্ড"]]
     await update.message.reply_text("👋 স্বাগতম! নিচে ক্লিক করুন:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
 
-# --- রানার ---
+import threading
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+
+# --- সার্ভার রান করার ফাংশন ---
+def run_dummy_server():
+    try:
+        server_address = ('', 8080)
+        httpd = HTTPServer(server_address, SimpleHTTPRequestHandler)
+        print("Dummy port server started successfully on 8080")
+        httpd.serve_forever()
+    except Exception as e:
+        print(f"Port Server error: {e}")
+
+# --- রানার সেকশন ---
 if __name__ == '__main__':
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
+    # ১. পোর্ট সার্ভার চালু করা (এটি কল করা জরুরি!)
+    threading.Thread(target=run_dummy_server, daemon=True).start()
     
+    # ২. বট অ্যাপ্লিকেশন তৈরি
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    
+    # ৩. জব কিউ এবং হ্যান্ডলার
+    app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("setbonus", set_bonus))
     app.add_handler(CommandHandler("broadcast", broadcast))
