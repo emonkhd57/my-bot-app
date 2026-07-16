@@ -3,21 +3,47 @@ import io
 import re
 import json
 import html
-import os  # <--- Webhook & PORT এর জন্য ইম্পোর্ট যোগ করা হয়েছে
+import os
 import httpx
 import pyotp
 import random
 import string
+import firebase_admin
+from firebase_admin import credentials, firestore
 from datetime import datetime, timedelta
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 from telegram.error import TelegramError
 
+# ==================== FIRESTORE INITIALIZATION ====================
+# নিশ্চিত করুন আপনার এনভায়রনমেন্ট ভেরিয়েবলে FIREBASE_JSON সেট করা আছে
+service_account_info = json.loads(os.environ.get('FIREBASE_JSON'))
+cred = credentials.Certificate(service_account_info)
+firebase_admin.initialize_app(cred)
+db = firestore.client()
+
+# ==================== GLOBAL STATE & FIRESTORE FUNCTIONS ====================
+_country_otp_timestamps = {}
+
+def load_database():
+    global _country_otp_timestamps
+    try:
+        doc = db.collection("bot_state").document("1").get()
+        if doc.exists:
+            data = doc.to_dict()
+            _country_otp_timestamps = data.get("country_otp_timestamps", {})
+    except Exception as e:
+        print(f"Error loading from Firestore: {e}")
+
+def save_database():
+    try:
+        data = {"country_otp_timestamps": _country_otp_timestamps}
+        db.collection("bot_state").document("1").set(data, merge=True)
+    except Exception as e:
+        print(f"Error saving to Firestore: {e}")
+
 # ==================== CONFIG SECTION ====================
-
 BOT_TOKEN = "8747963961:AAF-If960VRwEjH_P3Ar6sFgFsP41oajP9M"
-
-# ==================== VOLTX SMS API CONFIGURATION ====================
 API_KEY = "M48R9YJS4ES"
 BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tnevs/@public/api"
 HEADERS = {"mauthapi": API_KEY, "Content-Type": "application/json"}
