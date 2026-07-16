@@ -48,18 +48,20 @@ API_KEY = "M48R9YJS4ES"
 BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tnevs/@public/api"
 HEADERS = {"mauthapi": API_KEY, "Content-Type": "application/json"}
 
-USER_DATA_FILE = "users.json"
-PAID_SMS_FILE = "paid_sms.json"
-STATS_FILE = "user_stats.json"
-REFERRAL_DATA_FILE = "referral_data.json"
-BANNED_USERS_FILE = "banned_users.json"
-WITHDRAW_DATA_FILE = "withdraw_requests.json"
-ACTIVITY_LOGS_FILE = "activity_logs.json"
-DATA_RANGE_FILE = "datarange.json"
-SYSTEM_CONFIG_FILE = "system_config.json"
-USER_OTP_RATE_FILE = "user_otp_rates.json"
-REQUIRED_CHANNELS_FILE = "required_channels.json"
-FAKE_OTP_CONFIG_FILE = "fake_otp_config.json"
+# Firestore Collection Names (JSON ফাইলের পরিবর্তে এগুলো ব্যবহার করবেন)
+USERS_COLLECTION = "users"
+PAID_SMS_COLLECTION = "paid_sms"
+STATS_COLLECTION = "user_stats"
+REFERRAL_COLLECTION = "referral_data"
+BANNED_USERS_COLLECTION = "banned_users"
+WITHDRAW_COLLECTION = "withdraw_requests"
+ACTIVITY_LOGS_COLLECTION = "activity_logs"
+DATA_RANGE_COLLECTION = "datarange"
+SYSTEM_CONFIG_COLLECTION = "system_config"
+USER_OTP_RATE_COLLECTION = "user_otp_rates"
+REQUIRED_CHANNELS_COLLECTION = "required_channels"
+FAKE_OTP_CONFIG_COLLECTION = "fake_otp_config"
+                
 
 # ==================== MULTIPLE ADMINS CONFIGURATION ====================
 ADMINS = [6129481361]
