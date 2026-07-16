@@ -14,8 +14,8 @@ ADMIN_ID = int(os.getenv('ADMIN_ID'))
 BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tnemn/@public/api"
 
 # --- Firebase Setup (Render এনভায়রনমেন্ট থেকে) ---
-firebase_config = json.loads(os.getenv('FIREBASE_CONFIG'))
-cred = credentials.Certificate(firebase_config)
+firebase_json = json.loads(os.getenv('FIREBASE_JSON'))
+cred = credentials.Certificate(firebase_json)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
