@@ -28,7 +28,7 @@ else:
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
 API_KEY = os.getenv('API_KEY')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
-OTP_GROUP_ID = "-1004392024227"  # নতুন গ্রুপ আইডি আপডেট করা হয়েছে
+OTP_GROUP_ID = "-1004392024227"
 MAIN_CHANNEL_URL = "https://t.me/your_main_channel"
 BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tnemn/@public/api"
 
@@ -73,7 +73,8 @@ def get_admin_menu():
     keyboard = [
         ["💸 ওটিপি রেট", "⚙️ মিনিমাম উইথড্র"],
         ["👥 All User List", "📨 Withdraw Request"],
-        ["⚙️ Add Service", "⚙️ Add Country"],
+        ["⚙️ Add Service", "🗑️ Remove Service"],
+        ["⚙️ Add Country", "🗑️ Remove Country"],
         ["👤 User Information", "📊 Top 10 OTP (24h)"],
         ["📢 ব্রডকাস্ট", "🔙 মেইন মেনু"]
     ]
@@ -145,20 +146,19 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।")
         elif action == 'add_country_input':
             try:
-                # নাম্বারের রেঞ্জ ইনপুট নিতে স্প্লিটিং লজিক ফিক্স
                 parts = text.strip().split()
                 if len(parts) >= 2:
-                    c_code = parts[-1]  # শেষের অংশটি রেঞ্জ কোড (যেমন: 224678XXX বা কোড)
-                    c_name = " ".join(parts[:-1])  # প্রথমের অংশটি দেশের নাম (যেমন: Ivory Coast)
+                    c_code = parts[-1]  
+                    c_name = " ".join(parts[:-1]) 
                     
                     config = get_bot_settings()
                     countries_dict = config.get('countries', {})
                     countries_dict[c_name] = c_code.lower()
                     
                     db.collection('settings').document('config').update({'countries': countries_dict})
-                    await update.message.reply_text(f"✅ দেশ সফলভাবে যুক্ত হয়েছে: {c_name} (Range Code: {c_code})")
+                    await update.message.reply_text(f"✅ দেশ সফলভাবে যুক্ত হয়েছে: {c_name} (Code: {c_code})")
                 else:
-                    await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Ivory Coast 224678`")
+                    await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Ivory Coast ci` বা `Madagascar mg`")
             except: 
                 await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।")
         elif action == 'user_info_search':
@@ -245,17 +245,31 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "⚙️ Add Service" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'add_service'
         await update.message.reply_text("✍️ জাস্ট আপনার সার্ভিস এর নামটি লিখে পাঠান।\n\n✍️ যেমন: `Facebook`", reply_markup=get_inline_cancel())
-    elif text == "⚙️ Add Country" and user_id == ADMIN_ID:
+    elif text == "🗑️ Remove Service" and user_id == ADMIN_ID:
         config = get_bot_settings()
         services = config.get('services', {})
         if not services:
-            await update.message.reply_text("❌ কোনো সার্ভিস উপলব্ধ নেই। প্রথমে সার্ভিস অ্যাড করুন।")
+            await update.message.reply_text("❌ কোনো সার্ভিস উপলব্ধ নেই।")
             return
         keyboard = []
-        for s_name, s_code in services.items():
-            keyboard.append([InlineKeyboardButton(f"🎯 {s_name}", callback_data=f"adm_addc_for_{s_code}")])
+        for s_name in services.keys():
+            keyboard.append([InlineKeyboardButton(f"🗑️ {s_name}", callback_data=f"rem_srv_{s_name}")])
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
-        await update.message.reply_text("⚙️ **কোন সার্ভিসের জন্য কান্ট্রি এড করতে চান তা সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
+        await update.message.reply_text("🗑️ **কোন সার্ভিসটি রিমুভ করতে চান সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
+    elif text == "⚙️ Add Country" and user_id == ADMIN_ID:
+        context.user_data['adm_action'] = 'add_country_input'
+        await update.message.reply_text("✍️ দেশের নাম ও দেশের শর্ট কোড স্পেস দিয়ে পাঠান।\n\n✍️ উদাহরণ: `Ivory Coast ci`", reply_markup=get_inline_cancel())
+    elif text == "🗑️ Remove Country" and user_id == ADMIN_ID:
+        config = get_bot_settings()
+        countries = config.get('countries', {})
+        if not countries:
+            await update.message.reply_text("❌ কোনো দেশ উপলব্ধ নেই।")
+            return
+        keyboard = []
+        for c_name in countries.keys():
+            keyboard.append([InlineKeyboardButton(f"🗑️ {c_name}", callback_data=f"rem_cnt_{c_name}")])
+        keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
+        await update.message.reply_text("🗑️ **কোন দেশটি রিমুভ করতে চান সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
     elif text == "📊 Top 10 OTP (24h)" and user_id == ADMIN_ID:
         orders = db.collection('orders').where('status', '==', 'completed').stream()
         user_counts = {}
@@ -360,15 +374,26 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
     
-    if data.startswith("adm_addc_for_"):
-        s_code = data.split("_")[3]
-        context.user_data['adm_action'] = 'add_country_input'
-        context.user_data['adding_country_for_service'] = s_code
-        await query.edit_message_text(
-            f"✍️ দেশের নাম ও স্পেস দিয়ে নাম্বারের রেঞ্জ পাঠান।\n\n✍️ উদাহরণ: `Ivory Coast 224678`",
-            reply_markup=get_inline_cancel()
-        )
-        
+    # সার্ভিস রিমুভ করার লজিক
+    if data.startswith("rem_srv_"):
+        s_name = data.split("_")[2]
+        config = get_bot_settings()
+        services = config.get('services', {})
+        if s_name in services:
+            del services[s_name]
+            db.collection('settings').document('config').update({'services': services})
+            await query.edit_message_text(f"✅ **{s_name}** সার্ভিসটি সফলভাবে রিমুভ করা হয়েছে।")
+            
+    # কান্ট্রি রিমুভ করার লজিক
+    elif data.startswith("rem_cnt_"):
+        c_name = data.split("_")[2]
+        config = get_bot_settings()
+        countries = config.get('countries', {})
+        if c_name in countries:
+            del countries[c_name]
+            db.collection('settings').document('config').update({'countries': countries})
+            await query.edit_message_text(f"✅ **{c_name}** দেশটি সফলভাবে রিমুভ করা হয়েছে।")
+
     elif data.startswith("usr_s_"):
         s_code = data.split("_")[2]
         context.user_data['selected_service_code'] = s_code
@@ -378,7 +403,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = []
         for c_name, c_code in countries.items():
-            # ইউজার প্যানেলে শুধু দেশের নাম শো হবে
             keyboard.append([InlineKeyboardButton(f"🌍 {c_name}", callback_data=f"usr_c_{c_code}")])
         keyboard.append([InlineKeyboardButton("⬅️ সার্ভিস তালিকায় ফিরে যান", callback_data="back_to_services")])
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
@@ -400,7 +424,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⚡ ব্যাকগ্রাউন্ডে আপনার নাম্বার খোঁজা হচ্ছে...")
         
         try:
-            # ব্যাকগ্রাউন্ডে রেঞ্জ কোড এপিআই-তে সাবমিট হচ্ছে
             api_res = requests.post(f"{BASE_URL}/getnum", headers={"mauthapi": API_KEY}, json={"rid": "26134", "country": c_code, "service": s_code}).json()
             if api_res.get('meta', {}).get('code') == 200:
                 number = api_res['data']['full_number']
@@ -464,7 +487,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             await query.message.reply_text(cancel_text, parse_mode="Markdown")
 
-# --- ওটিপি চেকার ব্যাকগ্রাউন্ড ফাংশন (স্ক্রিনশটের মতো হুয়াকু মডিউল ফিক্স) ---
+# --- ওটিপি চেকার ব্যাকগ্রাউন্ড ফাংশন ---
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     url = f"{BASE_URL}/success-otp"
     try:
@@ -498,7 +521,6 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             ref_cur_bal = ref_user_ref.get().to_dict().get('balance', 0.0)
                             ref_user_ref.update({'balance': ref_cur_bal + 0.10})
 
-                    # স্ক্রিনশটের মতো একদম সেম টেক্সট ফরম্যাট (কোটেশন বাটন স্টাইল)
                     success_msg = (
                         f"**Now Otp**\n"
                         f"📢 `Number 1 ❞` \n\n"
@@ -510,10 +532,8 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         f"🎁 *প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন!* 🚀"
                     )
                     
-                    # ইউজারের ইনবক্সে কোনো বাটন ছাড়া মেসেজ পাঠানো হলো
                     await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
                     
-                    # ওটিপি গ্রুপে বাটনসহ মেসেজ পাঠানো হলো
                     group_buttons = [
                         [InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{(await context.bot.get_me()).username}")],
                         [InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]
