@@ -9,28 +9,108 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import requests
 
-# --- কনফিগারেশন ---
-BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
-API_KEY = os.getenv('API_KEY')
-ADMIN_ID = int(os.getenv('ADMIN_ID'))
-OTP_GROUP_ID = os.getenv('OTP_GROUP_ID') # ওটিপি ফরওয়ার্ড করার গ্রুপ আইডি
-BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tnemn/@public/api"
+# ==================== FIRESTORE SYSTEM CONFIG ====================
+async def load_system_config():
+    doc = db.collection("system").document("config").get()
+    if not doc.exists:
+        default_config = {
+            "min_withdraw": 110.0,
+            "max_withdraw": 5000.0,
+            "payment_methods": {"BKASH": True, "NAGAD": True, "ROCKET": True, "BINANCE": True},
+            "otp_rate": 20.0
+        }
+        db.collection("system").document("config").set(default_config)
+        return default_config
+    return doc.to_dict()
 
-firebase_json = json.loads(os.getenv('FIREBASE_JSON'))
-cred = credentials.Certificate(firebase_json)
-firebase_admin.initialize_app(cred)
-db = firestore.client()
+async def update_min_withdraw(new_min):
+    db.collection("system").document("config").update({"min_withdraw": float(new_min)})
 
-# --- মেইন মেনু কিবোর্ড ---
-def get_main_menu(user_id):
-    keyboard = [
-        ["🎭 নাম্বার নিন", "💸 ব্যালেন্স"],
-        ["💰 টাকা উত্তোলন", "🎁 My Referrals"],
-        ["🧐 সাপোর্ট", "🆕 আমি নতুন"]
-    ]
-    if user_id == ADMIN_ID:
-        keyboard.append(["👑 অ্যাডমিন প্যানেল"])
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+async def update_otp_rate(new_rate):
+    db.collection("system").document("config").update({"otp_rate": float(new_rate)})
+
+async def get_otp_rate():
+    config = await load_system_config()
+    return config.get("otp_rate", 20.0)
+
+async def toggle_payment_method(method_name):
+    config = await load_system_config()
+    methods = config.get("payment_methods", {})
+    if method_name in methods:
+        methods[method_name] = not methods[method_name]
+        db.collection("system").document("config").update({"payment_methods": methods})
+        return methods[method_name]
+    return None
+
+async def get_enabled_payment_methods():
+    config = await load_system_config()
+    return [name for name, enabled in config.get("payment_methods", {}).items() if enabled]
+
+# ==================== PER-USER OTP RATE ====================
+async def get_user_otp_rate(user_id):
+    doc = db.collection("user_rates").document(str(user_id)).get()
+    if doc.exists:
+        return doc.to_dict().get("rate", await get_otp_rate())
+    return await get_otp_rate()
+
+async def set_user_otp_rate(user_id, rate):
+    if float(rate) > 0:
+        db.collection("user_rates").document(str(user_id)).set({"rate": float(rate)}, merge=True)
+    else:
+        db.collection("user_rates").document(str(user_id)).delete()
+
+# ==================== FAKE OTP CONFIG ====================
+async def load_fake_otp_config():
+    doc = db.collection("system").document("fake_otp").get()
+    if not doc.exists:
+        default = {"enabled": False, "service": "facebook", "range": "", "interval": 10, "running": False, "otp_digits": 6}
+        db.collection("system").document("fake_otp").set(default)
+        return default
+    return doc.to_dict()
+
+async def update_fake_otp_config(**kwargs):
+    db.collection("system").document("fake_otp").update(kwargs)
+
+# ==================== REQUIRED CHANNELS ====================
+async def get_all_required_channels():
+    doc = db.collection("system").document("channels").get()
+    return doc.to_dict().get("list", []) if doc.exists else []
+
+async def add_required_channel(link, label=None, chat_id=None):
+    channels = await get_all_required_channels()
+    if any(ch['link'] == link for ch in channels): return False, "এই লিংক ইতিমধ্যে আছে।"
+    entry = {"link": link, "label": label or link, "chat_id": chat_id}
+    channels.append(entry)
+    db.collection("system").document("channels").set({"list": channels})
+    return True, "সফলভাবে যোগ করা হয়েছে।"
+
+async def remove_required_channel(link_or_label):
+    channels = await get_all_required_channels()
+    new_channels = [ch for ch in channels if ch.get("link") != link_or_label and ch.get("label") != link_or_label]
+    if len(new_channels) < len(channels):
+        db.collection("system").document("channels").set({"list": new_channels})
+        return True, "সরানো হয়েছে।"
+    return False, "কোনো ম্যাচ পাওয়া যায়নি।"
+
+# ==================== BANNED USERS ====================
+async def is_user_banned(uid):
+    return db.collection("banned").document(str(uid)).get().exists
+
+async def ban_user(uid):
+    db.collection("banned").document(str(uid)).set({"banned": True})
+
+async def unban_user(uid):
+    db.collection("banned").document(str(uid)).delete()
+
+# ==================== REFERRAL DATA ====================
+async def get_referral_count(uid):
+    doc = db.collection("referrals").document(str(uid)).get()
+    return doc.to_dict().get("referral_count", 0) if doc.exists else 0
+
+async def update_referral_count(uid, count):
+    db.collection("referrals").document(str(uid)).set({"referral_count": count}, merge=True)
+
+
 
 # --- Start Command ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
