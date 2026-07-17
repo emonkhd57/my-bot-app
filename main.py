@@ -1,117 +1,153 @@
 import logging
 import os
 import json
+import threading
+from http.server import HTTPServer, SimpleHTTPRequestHandler
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import firebase_admin
 from firebase_admin import credentials, firestore
 import requests
 
-# --- এনভায়রনমেন্ট ভেরিয়েবল থেকে কনফিগারেশন ---
+# --- কনফিগারেশন ---
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
 API_KEY = os.getenv('API_KEY')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
+OTP_GROUP_ID = os.getenv('OTP_GROUP_ID') # ওটিপি ফরওয়ার্ড করার গ্রুপ আইডি
 BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tnemn/@public/api"
 
-# --- Firebase Setup (Render এনভায়রনমেন্ট থেকে) ---
 firebase_json = json.loads(os.getenv('FIREBASE_JSON'))
 cred = credentials.Certificate(firebase_json)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# --- বাকি কোড ---
+# --- মেইন মেনু কিবোর্ড ---
+def get_main_menu(user_id):
+    keyboard = [
+        ["🎭 নাম্বার নিন", "💸 ব্যালেন্স"],
+        ["💰 টাকা উত্তোলন", "🎁 My Referrals"],
+        ["🧐 সাপোর্ট", "🆕 আমি নতুন"]
+    ]
+    if user_id == ADMIN_ID:
+        keyboard.append(["👑 অ্যাডমিন প্যানেল"])
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+# --- Start Command ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    db.collection('users').document(str(user_id)).set({'id': user_id, 'balance': 0.0}, merge=True)
+    text = ("👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম।\n\n"
+            "সরাসরি ইনস্টাগ্রাম নাম্বার পেতে নিচের 🎭 Number বাটনে প্রেস করুন।")
+    await update.message.reply_text(text, reply_markup=get_main_menu(user_id))
+
+# --- অ্যাডমিন প্যানেল ---
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    keyboard = [
+        [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="adm_user_mgmt")],
+        [InlineKeyboardButton("⚙️ SYSTEM CONFIGURATION", callback_data="adm_sys_conf")],
+        [InlineKeyboardButton("💲 ওটিপি রেট পরিবর্তন", callback_data="change_otp_rate")],
+        [InlineKeyboardButton("🔙 BACK TO MAIN", callback_data="back_main")]
+    ]
+    await update.message.reply_text("👑 প্রধান অ্যাডমিন মেনু:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data == "back_main":
+        await query.edit_message_text("🔙 প্রধান মেনুতে ফিরে এসেছেন।")
+    elif data == "adm_user_mgmt":
+        keyboard = [
+            [InlineKeyboardButton("📢 SEND MSG TO ALL", callback_data="bc_all")],
+            [InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_main")]
+        ]
+        await query.edit_message_text("👥 ইউজার ম্যানেজমেন্ট:", reply_markup=InlineKeyboardMarkup(keyboard))
+    elif data == "change_otp_rate":
+        await query.edit_message_text("💰 নতুন ওটিপি রেট লিখুন (যেমন: ২০):")
+        context.user_data['waiting_for_rate'] = True
+    elif data == "admin_main":
+        keyboard = [
+            [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="adm_user_mgmt")],
+            [InlineKeyboardButton("⚙️ SYSTEM CONFIGURATION", callback_data="adm_sys_conf")],
+            [InlineKeyboardButton("💲 ওটিপি রেট পরিবর্তন", callback_data="change_otp_rate")]
+        ]
+        await query.edit_message_text("👑 প্রধান অ্যাডমিন মেনু:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# --- ইউজার ফাংশন ---
+async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_ref = db.collection('users').document(str(user_id)).get()
+    balance = user_ref.to_dict().get('balance', 0.0) if user_ref.exists else 0.0
+    text = (f"💲 আপনার ব্যালেন্স\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🔥 ব্যালেন্স: {balance:.2f} BDT\n"
+            f"💰 পেন্ডিং (উইথড্র): 0.00 BDT\n"
+            f"💵 Total Income: 0.00 BDT\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"✅ মোট ওটিপি রিসিভ: 0 টি")
+    await update.message.reply_text(text)
+
+async def withdraw_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("💳 USDT (BEP-20) -> সর্বনিম্ন: 0.20(-0.05)", callback_data="wd_usdt")],
+        [InlineKeyboardButton(" বিকাশ -> সর্বনিম্ন: ১১০ট(-৫)", callback_data="wd_bkash")],
+        [InlineKeyboardButton(" নগদ -> সর্বনিম্ন: ১১০ট(-৫)", callback_data="wd_nagad")],
+        [InlineKeyboardButton("🔙 ফিরে যান", callback_data="back_main")]
+    ]
+    await update.message.reply_text("📥 টাকা তোলার মাধ্যম সিলেক্ট করুন:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# --- ওটিপি ফাংশন ও ফরওয়ার্ডিং ---
 async def get_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    url = f"{BASE_URL}/getnum"
-    payload = {"rid": "26134"}
-    headers = {"mauthapi": API_KEY}
-    
-    response = requests.post(url, headers=headers, json=payload)
-    data = response.json()
-    
-    if data['meta']['code'] == 200:
-        number = data['data']['full_number']
-        db.collection('orders').document(str(number)).set({
-            'user_id': user_id,
-            'number': number,
-            'status': 'active'
-        })
+    # API কল
+    response = requests.post(f"{BASE_URL}/getnum", headers={"mauthapi": API_KEY}, json={"rid": "26134"}).json()
+    if response.get('meta', {}).get('code') == 200:
+        number = response['data']['full_number']
+        db.collection('orders').document(str(number)).set({'user_id': user_id, 'status': 'active'})
         await update.message.reply_text(f"✅ নাম্বার পাওয়া গেছে: {number}\nওটিপির জন্য অপেক্ষা করুন...")
     else:
         await update.message.reply_text("❌ দুঃখিত, বর্তমানে কোনো নাম্বার নেই।")
 
-# --- ওটিপি ফরওয়ার্ডিং (অটোমেশন) ---
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     url = f"{BASE_URL}/success-otp"
-    headers = {"mauthapi": API_KEY}
     try:
-        response = requests.get(url, headers=headers)
-        data = response.json()
-        if data['meta']['code'] == 200 and data['data']['otps']:
+        data = requests.get(url, headers={"mauthapi": API_KEY}).json()
+        if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
             latest_otp = data['data']['otps'][0]
             number = latest_otp['number']
             order_ref = db.collection('orders').document(str(number))
             order = order_ref.get()
             if order.exists:
                 user_id = order.to_dict()['user_id']
-                bonus = db.collection('bot_state').document('1').get().to_dict().get('bonus_per_otp', 0.50)
-                await context.bot.send_message(chat_id=user_id, text=f"🔔 নতুন ওটিপি এসেছে!\n📱 নাম্বার: {number}\n✉️ কোড: {latest_otp['message']}\n💰 বোনাস: {bonus} BDT")
+                # ইউজারকে পাঠানো
+                await context.bot.send_message(chat_id=user_id, text=f"🔔 নতুন ওটিপি এসেছে!\n📱 নাম্বার: {number}\n✉️ কোড: {latest_otp['message']}")
+                # ওটিপি গ্রুপে ফরওয়ার্ডিং
+                await context.bot.send_message(chat_id=OTP_GROUP_ID, text=f"🔔 নতুন ওটিপি!\n📱 নাম্বার: {number}\n✉️ কোড: {latest_otp['message']}")
                 order_ref.update({'status': 'completed'})
     except Exception as e:
         print(f"Error: {e}")
-
-# --- এডমিন ফিচারস ---
-async def set_bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == ADMIN_ID:
-        try:
-            amount = float(context.args[0])
-            db.collection('bot_state').document('1').set({'bonus_per_otp': amount}, merge=True)
-            await update.message.reply_text(f"✅ বোনাস সেট করা হয়েছে: {amount} BDT")
-        except:
-            await update.message.reply_text("❌ ভুল কমান্ড! সঠিক ফরম্যাট: /setbonus 0.50")
-
-async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == ADMIN_ID:
-        msg = " ".join(context.args)
-        users = db.collection('users').stream()
-        for user in users:
-            try: await context.bot.send_message(chat_id=user.id, text=msg)
-            except: continue
-        await update.message.reply_text("✅ ব্রডকাস্ট সম্পন্ন হয়েছে।")
-
-# --- মেইন মেনু ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    db.collection('users').document(str(update.effective_user.id)).set({'id': update.effective_user.id}, merge=True)
-    keyboard = "🎭 নাম্বার নিন", "💸 ব্যালেন্স"], ["💰 টাকা উত্তোলন", "🎁 My Referrals"], ["🧐 সাপোর্ট", "👶 আমি নতুন"], ["🏆 লিডারবোর্ড"
-    await update.message.reply_text("👋 স্বাগতম! নিচে ক্লিক করুন:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
-
-import threading
-from http.server import HTTPServer, SimpleHTTPRequestHandler
-
-# --- সার্ভার রান করার ফাংশন ---
+        
+# --- রানার ---
 def run_dummy_server():
     try:
         server_address = ('', 8080)
         httpd = HTTPServer(server_address, SimpleHTTPRequestHandler)
-        print("Dummy port server started successfully on 8080")
         httpd.serve_forever()
-    except Exception as e:
-        print(f"Port Server error: {e}")
+    except: pass
 
-# --- রানার সেকশন ---
 if __name__ == '__main__':
-    # ১. পোর্ট সার্ভার চালু করা (এটি কল করা জরুরি!)
     threading.Thread(target=run_dummy_server, daemon=True).start()
-    
-    # ২. বট অ্যাপ্লিকেশন তৈরি
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # ৩. জব কিউ এবং হ্যান্ডলার
-    app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("setbonus", set_bonus))
-    app.add_handler(CommandHandler("broadcast", broadcast))
-    app.add_handler(MessageHandler(filters.Text(["🎭 নাম্বার নিন"]), get_number))
+    app.add_handler(MessageHandler(filters.Text(["🎭 নাম্বার নিন"]), lambda u, c: u.message.reply_text("নাম্বার রিকোয়েস্ট প্রসেস হচ্ছে...")))
+    app.add_handler(MessageHandler(filters.Text(["💸 ব্যালেন্স"]), show_balance))
+    app.add_handler(MessageHandler(filters.Text(["💰 টাকা উত্তোলন"]), withdraw_money))
+    app.add_handler(MessageHandler(filters.Text(["👑 অ্যাডমিন প্যানেল"]), admin_panel))
+    
+    app.add_handler(CallbackQueryHandler(admin_callback))
     
     print("Bot is running...")
     app.run_polling()
