@@ -26,11 +26,9 @@ else:
 
 # --- কনফিগারেশন ---
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
-API_KEY = os.getenv('API_KEY')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
 OTP_GROUP_ID = "-1004392024227"
 MAIN_CHANNEL_URL = "https://t.me/your_main_channel"
-BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tnemn/@public/api"
 
 # ফায়ারবেস ইনিশিয়ালাইজেশন
 if not firebase_admin._apps:
@@ -39,6 +37,14 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
+
+# ডাইনামিক এপিআই গেটওয়ে হেল্পার ফাংশনসমূহ
+def get_active_provider():
+    """সবচেয়ে প্রথম অ্যাক্টিভ এপিআই প্রোভাইডারটি রিটার্ন করে"""
+    providers = db.collection('api_providers').where('is_active', '==', True).limit(1).get()
+    if providers:
+        return providers[0].to_dict()
+    return None
 
 def get_bot_settings():
     settings_ref = db.collection('settings').document('config').get()
@@ -75,8 +81,9 @@ def get_admin_menu():
         ["👥 All User List", "📨 Withdraw Request"],
         ["⚙️ Add Service", "🗑️ Remove Service"],
         ["⚙️ Add Country", "🗑️ Remove Country"],
-        ["👤 User Information", "📊 Top 10 OTP (24h)"],
-        ["📢 ব্রডকাস্ট", "🔙 মেইন মেনু"]
+        ["🔌 Manage APIs", "👤 User Information"],
+        ["📊 Top 10 OTP (24h)", "📢 ব্রডকাস্ট"],
+        ["🔙 মেইন মেনু"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -156,11 +163,39 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     countries_dict[c_name] = c_code.lower()
                     
                     db.collection('settings').document('config').update({'countries': countries_dict})
-                    await update.message.reply_text(f"✅ দেশ সফলভাবে যুক্ত হয়েছে: {c_name} (Code: {c_code})")
+                    await update.message.reply_text(f"✅ দেশ সফলভাবে যুক্ত হয়েছে: {c_name} (Code/Range: {c_code})")
                 else:
-                    await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Ivory Coast ci` বা `Madagascar mg`")
+                    await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Ivory Coast 225079`")
             except: 
                 await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।")
+        
+        # --- নতুন এপিআই প্রোভাইডার যোগ করার ধাপসমূহ ---
+        elif action == 'add_api_step1':
+            context.user_data['temp_api_name'] = text.strip()
+            context.user_data['adm_action'] = 'add_api_step2'
+            await update.message.reply_text("🔑 এবার এই প্রোভাইডারের **API KEY / TOKEN** টি পাঠান:", reply_markup=get_inline_cancel())
+            return
+        elif action == 'add_api_step2':
+            context.user_data['temp_api_key'] = text.strip()
+            context.user_data['adm_action'] = 'add_api_step3'
+            await update.message.reply_text("🌐 এবার এই প্রোভাইডারের **BASE URL** টি পাঠান:\n\n*(যেমন: `https://api.2oo9.cloud/MXS47FLFX0U/tnemn/@public/api`)*", reply_markup=get_inline_cancel())
+            return
+        elif action == 'add_api_step3':
+            base_url = text.strip().rstrip('/')
+            api_name = context.user_data.get('temp_api_name')
+            api_key = context.user_data.get('temp_api_key')
+            
+            # ডেটাবেজে সেভ করা
+            prov_id = api_name.lower().replace(" ", "_")
+            db.collection('api_providers').document(prov_id).set({
+                'id': prov_id,
+                'name': api_name,
+                'api_key': api_key,
+                'base_url': base_url,
+                'is_active': False
+            })
+            await update.message.reply_text(f"✅ **{api_name}** এপিআই সফলভাবে যুক্ত হয়েছে! এখন `🔌 Manage APIs` মেনু থেকে এটিকে Active করতে পারবেন।")
+            
         elif action == 'user_info_search':
             tgt_user = db.collection('users').document(text).get()
             if tgt_user.exists:
@@ -258,7 +293,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("🗑️ **কোন সার্ভিসটি রিমুভ করতে চান সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
     elif text == "⚙️ Add Country" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'add_country_input'
-        await update.message.reply_text("✍️ দেশের নাম ও দেশের শর্ট কোড স্পেস দিয়ে পাঠান।\n\n✍️ উদাহরণ: `Ivory Coast ci`", reply_markup=get_inline_cancel())
+        await update.message.reply_text("✍️ দেশের নাম ও প্রোভাইডার সাইটের রেঞ্জ কোড স্পেস দিয়ে পাঠান।\n\n✍️ উদাহরণ: `Ivory Coast 225079`", reply_markup=get_inline_cancel())
     elif text == "🗑️ Remove Country" and user_id == ADMIN_ID:
         config = get_bot_settings()
         countries = config.get('countries', {})
@@ -270,6 +305,31 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             keyboard.append([InlineKeyboardButton(f"🗑️ {c_name}", callback_data=f"rem_cnt_{c_name}")])
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await update.message.reply_text("🗑️ **কোন দেশটি রিমুভ করতে চান সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    # --- এপিআই কন্ট্রোল প্যানেল ট্রিগার ---
+    elif text == "🔌 Manage APIs" and user_id == ADMIN_ID:
+        providers = db.collection('api_providers').stream()
+        keyboard = []
+        msg_text = "🔌 **API Providers Manager**\n\n"
+        has_providers = False
+        
+        for p in providers:
+            has_providers = True
+            pd = p.to_dict()
+            status_emoji = "🟢 Active" if pd.get('is_active') else "🔴 Inactive"
+            msg_text += f"📛 **{pd['name']}**\n📌 Status: {status_emoji}\n🌐 URL: `{pd['base_url']}`\n\n"
+            keyboard.append([
+                InlineKeyboardButton(f"⚡ Toggle {pd['name']}", callback_data=f"toggle_api_{pd['id']}"),
+                InlineKeyboardButton(f"🗑️ Del", callback_data=f"del_api_{pd['id']}")
+            ])
+            
+        if not has_providers:
+            msg_text += "❌ কোনো এপিআই প্রোভাইডার যুক্ত করা নেই।"
+            
+        keyboard.append([InlineKeyboardButton("➕ Add New API", callback_data="add_new_api")])
+        keyboard.append([InlineKeyboardButton("❌ ক্লোজ", callback_data="cancel_action")])
+        await update.message.reply_text(msg_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        
     elif text == "📊 Top 10 OTP (24h)" and user_id == ADMIN_ID:
         orders = db.collection('orders').where('status', '==', 'completed').stream()
         user_counts = {}
@@ -374,8 +434,29 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
     
+    # এপিআই অন/অফ করার লজিক (একটি অ্যাক্টিভ হলে বাকিগুলো অফ হয়ে যাবে)
+    if data.startswith("toggle_api_"):
+        api_id = data.split("_")[2]
+        # প্রথমে বাকি সবগুলোকে False করে দেওয়া হচ্ছে
+        all_apis = db.collection('api_providers').get()
+        for a in all_apis:
+            db.collection('api_providers').document(a.id).update({'is_active': False})
+            
+        # সিলেক্টেড প্রোভাইডারটিকে True করা হলো
+        db.collection('api_providers').document(api_id).update({'is_active': True})
+        await query.edit_message_text("✅ এপিআই সফলভাবে পরিবর্তিত ও সক্রিয় হয়েছে।")
+        
+    elif data.startswith("del_api_"):
+        api_id = data.split("_")[2]
+        db.collection('api_providers').document(api_id).delete()
+        await query.edit_message_text("🗑️ এপিআই প্রোভাইডার সফলভাবে রিমুভ করা হয়েছে।")
+        
+    elif data == "add_new_api":
+        context.user_data['adm_action'] = 'add_api_step1'
+        await query.edit_message_text("✍️ নতুন প্রোভাইডারের একটি **সুন্দর নাম** টাইপ করে পাঠান:\n\n*(যেমন: MnitNetwork)*", reply_markup=get_inline_cancel())
+
     # সার্ভিস রিমুভ করার লজিক
-    if data.startswith("rem_srv_"):
+    elif data.startswith("rem_srv_"):
         s_name = data.split("_")[2]
         config = get_bot_settings()
         services = config.get('services', {})
@@ -423,15 +504,23 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = query.from_user.id
         await query.edit_message_text("⚡ ব্যাকগ্রাউন্ডে আপনার নাম্বার খোঁজা হচ্ছে...")
         
+        # অ্যাক্টিভ এপিআই চেক
+        active_api = get_active_provider()
+        if not active_api:
+            await query.edit_message_text("❌ বর্তমানে কোনো অ্যাক্টিভ এপিআই প্রোভাইডার সেট করা নেই। অ্যাডমিনের সাথে যোগাযোগ করুন।", reply_markup=get_inline_cancel())
+            return
+            
         try:
-            # ডায়নামিক রিকোয়েস্ট কোড সেট করা হলো যাতে সঠিক দেশের নাম্বার আসে
             api_payload = {
-                "rid": c_code,      
-                "country": c_code, 
-                "service": s_code
+                "rid": c_code  
             }
             
-            api_res = requests.post(f"{BASE_URL}/getnum", headers={"mauthapi": API_KEY}, json=api_payload).json()
+            api_res = requests.post(
+                f"{active_api['base_url']}/getnum", 
+                headers={"mauthapi": active_api['api_key']}, 
+                json=api_payload
+            ).json()
+            
             if api_res.get('meta', {}).get('code') == 200:
                 number = api_res['data']['full_number']
                 config = get_bot_settings()
@@ -496,9 +585,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- ওটিপি চেকার ব্যাকগ্রাউন্ড ফাংশন ---
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
-    url = f"{BASE_URL}/success-otp"
+    # অ্যাক্টিভ এপিআই নিয়ে আসা হচ্ছে
+    active_api = get_active_provider()
+    if not active_api:
+        return
+        
+    url = f"{active_api['base_url']}/success-otp"
     try:
-        data = requests.get(url, headers={"mauthapi": API_KEY}).json()
+        data = requests.get(url, headers={"mauthapi": active_api['api_key']}).json()
         if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
             config = get_bot_settings()
             otp_rate = config.get('otp_rate', 2.50)
