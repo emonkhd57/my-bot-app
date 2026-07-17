@@ -29,9 +29,10 @@ else:
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
 
-# আপনার পাঠানো নতুন ওটিপি গ্রুপ আইডি ও সঠিক লিংক
+# ওটিপি গ্রুপ আইডি ও লিংক
 OTP_GROUP_ID = "-1003656135640"
-MAIN_CHANNEL_URL = "https://t.me/emsms10" # আপনার পাবলিক বা ইনভাইট লিংকটি এখানে বসাতে পারেন (অথবা গ্রুপের ইউজারনেম)
+OTP_GROUP_URL = "https://t.me/emsms10"       
+MAIN_CHANNEL_URL = "https://t.me/helptg100"   
 
 # ফায়ারবেস ইনিশিয়ালাইজেশন
 if not firebase_admin._apps:
@@ -41,9 +42,31 @@ if not firebase_admin._apps:
 
 db = firestore.client()
 
+# --- প্রিমিয়াম সার্ভিস ইমোজি হেল্পার ---
+def get_service_emoji(service_name):
+    """সার্ভিসের জন্য সবচেয়ে আকর্ষণীয় ও মানানসই প্রিমিয়াম ইমোজি রিটার্ন করে"""
+    srv = service_name.lower()
+    if "telegram" in srv:
+        return "✈️"
+    elif "facebook" in srv or "fb" in srv:
+        return "🌐"
+    elif "whatsapp" in srv or "wa" in srv:
+        return "💬"
+    elif "imo" in srv:
+        return "📞"
+    elif "google" in srv or "gmail" in srv:
+        return "📧"
+    elif "tiktok" in srv:
+        return "🎵"
+    elif "instagram" in srv or "ig" in srv:
+        return "📸"
+    elif "twitter" in srv or "x" in srv:
+        return "🐦"
+    else:
+        return "🎯" # ডিফল্ট চমৎকার ইমোজি
+
 # ডাইনামিক এপিআই গেটওয়ে হেল্পার ফাংশনসমূহ
 def get_active_provider():
-    """সবচেয়ে প্রথম অ্যাক্টিভ এপিআই প্রোভাইডারটি রিটার্ন করে"""
     providers = db.collection('api_providers').where('is_active', '==', True).limit(1).get()
     if providers:
         return providers[0].to_dict()
@@ -384,9 +407,12 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "🎭 Number নিন":
         config = get_bot_settings()
         services = config.get('services', {})
+        otp_rate = config.get('otp_rate', 2.50)
         keyboard = []
         for s_name, s_code in services.items():
-            keyboard.append([InlineKeyboardButton(f"🎯 {s_name}", callback_data=f"usr_s_{s_code}")])
+            s_emoji = get_service_emoji(s_name)
+            # ডাইনামিক রেট সার্ভিসের ডান পাশে প্রিমিয়াম ইমোজির সাথে দেখা যাবে
+            keyboard.append([InlineKeyboardButton(f"{s_emoji} {s_name}  ➔  ➕ {otp_rate:.2f} BDT", callback_data=f"usr_s_{s_code}")])
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await update.message.reply_text("⚡ **একটি সার্ভিস সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
     elif text == "💸 Balance":
@@ -501,9 +527,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "back_to_services":
         config = get_bot_settings()
         services = config.get('services', {})
+        otp_rate = config.get('otp_rate', 2.50)
         keyboard = []
         for s_name, s_code in services.items():
-            keyboard.append([InlineKeyboardButton(f"🎯 {s_name}", callback_data=f"usr_s_{s_code}")])
+            s_emoji = get_service_emoji(s_name)
+            keyboard.append([InlineKeyboardButton(f"{s_emoji} {s_name}  ➔  ➕ {otp_rate:.2f} BDT", callback_data=f"usr_s_{s_code}")])
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await query.edit_message_text("⚡ **একটি সার্ভিস সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -534,13 +562,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 config = get_bot_settings()
                 c_name = next((k for k, v in config['countries'].items() if v == c_code), "Country")
                 s_name = next((k for k, v in config['services'].items() if v == s_code), "Service")
+                s_emoji = get_service_emoji(s_name)
                 
                 db.collection('orders').document(str(number)).set({
                     'user_id': user_id, 'status': 'active', 'country_name': c_name, 'service_name': s_name, 'timestamp': datetime.utcnow()
                 })
                 
                 num_box = (
-                    f"🎯 **{s_name} (Allocated) ✅**\n"
+                    f"{s_emoji} **{s_name} (Allocated) ✅**\n"
                     f"🔄 Waiting for OTP........\n\n"
                     f"📱 `{number}`\n"
                     f"📱 `{number}`\n"
@@ -548,7 +577,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📥 ওটিপির জন্য অপেক্ষা করুন..."
                 )
                 action_buttons = [
-                    [InlineKeyboardButton("📢 ওটিপি গ্রুপ", url=MAIN_CHANNEL_URL), InlineKeyboardButton("🔄 নাম্বার পরিবর্তন করুন", callback_data=f"change_num_{c_code}")],
+                    [InlineKeyboardButton("📢 ওটিপি গ্রুপ", url=OTP_GROUP_URL), InlineKeyboardButton("🔄 নাম্বার পরিবর্তন করুন", callback_data=f"change_num_{c_code}")],
                     [InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")]
                 ]
                 await query.edit_message_text(num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="Markdown")
@@ -635,7 +664,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         f"🔸 {country_name} | {service_name}\n\n"
                         f"👤 **User:** {user_data.get('name', 'User')}\n"
                         f"💰 **Balance:** {cur_bal:.2f} BDT\n"
-                        f"✉️ **OTP Code:** `{otp_code}`\n"
+                        f"✉️ **OTP Code:** `{otp_code}`  (Add +{otp_rate:.2f} BDT) 🧾\n"
                         f"──────────────────────\n"
                         f"🎁 *প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন!* 🚀"
                     )
@@ -664,6 +693,7 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     
     services_list = list(config.get('services', {"Facebook": "fb", "Telegram": "tg"}).keys())
     countries_list = list(config.get('countries', {"Ivory Coast": "225079", "Afghanistan": "9374404"}).keys())
+    otp_rate = config.get('otp_rate', 2.50)
     
     if not services_list: services_list = ["Facebook", "Telegram", "WhatsApp", "IMO"]
     if not countries_list: countries_list = ["Ivory Coast", "Afghanistan", "Guinea", "Montenegro"]
@@ -673,13 +703,23 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     rand_country = random.choice(countries_list)
     rand_balance = round(random.uniform(10.50, 450.00), 2)
     
-    otp_formats = [
-        str(random.randint(1000, 9999)),
-        str(random.randint(10000, 99999)),
-        str(random.randint(100000, 999999)),
-        f"G-{random.randint(100000, 999999)}"
-    ]
-    rand_otp = random.choice(otp_formats)
+    # --- সার্ভিস অনুযায়ী নির্দিষ্ট ডিজিটের ডাইনামিক রিয়ালিস্টিক ওটিপি জেনারেশন ---
+    srv_lower = rand_service.lower()
+    if "facebook" in srv_lower or "fb" in srv_lower:
+        # ফেসবুকের জন্য সাধারণত ৫ ডিজিটের ওটিপি হয়
+        rand_otp = str(random.randint(10000, 99999))
+    elif "telegram" in srv_lower or "tg" in srv_lower:
+        # টেলিগ্রামের জন্য সাধারণত ৫ ডিজিটের ওটিপি হয়
+        rand_otp = str(random.randint(10000, 99999))
+    elif "imo" in srv_lower:
+        # ইমোর জন্য ৪ ডিজিটের ওটিপি হয়
+        rand_otp = str(random.randint(1000, 9999))
+    elif "whatsapp" in srv_lower or "wa" in srv_lower:
+        # হোয়াটস অ্যাপের জন্য ৬ ডিজিটের ওটিপি হয়
+        rand_otp = str(random.randint(100000, 999999))
+    else:
+        # গুগল, ইনস্টাগ্রাম বা অন্যান্য সার্ভিসের জন্য স্ট্যান্ডার্ড ৬ ডিজিট
+        rand_otp = str(random.randint(100000, 999999))
 
     fake_msg = (
         f"**Now Otp**\n"
@@ -687,7 +727,7 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
         f"🔸 {rand_country} | {rand_service}\n\n"
         f"👤 **User:** {rand_name}\n"
         f"💰 **Balance:** {rand_balance:.2f} BDT\n"
-        f"✉️ **OTP Code:** `{rand_otp}`\n"
+        f"✉️ **OTP Code:** `{rand_otp}`  (Add +{otp_rate:.2f} BDT) 🧾\n"
         f"──────────────────────\n"
         f"🎁 *প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন!* 🚀"
     )
