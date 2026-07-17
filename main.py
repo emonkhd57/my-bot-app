@@ -160,4 +160,5 @@ if __name__ == '__main__':
     app.add_handler(MessageHandler(filters.Text(["🧐 সাপোর্ট"]), show_support))
     app.add_handler(MessageHandler(filters.Text(["👑 অ্যাডমিন প্যানেল"]), admin_panel))
     
-    app.run_polling()
+    print("Bot is starting...")
+    app.run_polling(drop_pending_updates=True)
