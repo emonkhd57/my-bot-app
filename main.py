@@ -224,10 +224,24 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(f"✅ **{api_name}** এপিআই সফলভাবে যুক্ত হয়েছে!")
             
         elif action == 'user_info_search':
-            tgt_user = db.collection('users').document(text).get()
-            if tgt_user.exists:
+            search_query = text.strip()
+            tgt_user = None
+
+            # প্রথমে আইডি দিয়ে সার্চ করা হচ্ছে
+            if search_query.isdigit():
+                doc = db.collection('users').document(search_query).get()
+                if doc.exists:
+                    tgt_user = doc
+
+            # আইডি দিয়ে না পাওয়া গেলে নাম দিয়ে সার্চ করা হচ্ছে
+            if not tgt_user:
+                users_by_name = db.collection('users').where('name', '==', search_query).limit(1).get()
+                if users_by_name:
+                    tgt_user = users_by_name[0]
+
+            if tgt_user:
                 ud = tgt_user.to_dict()
-                context.user_data['managed_user_id'] = text
+                context.user_data['managed_user_id'] = str(ud['id'])
                 ref_count = len(ud.get('referrals', []))
                 ref_income = ref_count * 0.10
                 
@@ -248,7 +262,8 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 )
                 await update.message.reply_text(info_text, reply_markup=InlineKeyboardMarkup(kbd), parse_mode="Markdown")
             else:
-                await update.message.reply_text("❌ এই আইডি দিয়ে কোনো ইউজার পাওয়া যায়নি।")
+                await update.message.reply_text("❌ এই আইডি বা নাম দিয়ে কোনো ইউজার পাওয়া যায়নি।")
+                
         elif action == 'add_bal_amount':
             try:
                 tgt_id = context.user_data.get('managed_user_id')
@@ -378,12 +393,32 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             u_name = u_doc.to_dict().get('name', 'Unknown') if u_doc.exists else "Unknown User"
             board_text += f"{idx}. 👤 {u_name} | ID: `{uid}` ➔ **{count} টি OTP**\n"
         await update.message.reply_text(board_text, parse_mode="Markdown")
+
     elif text == "👥 All User List" and user_id == ADMIN_ID:
         users = db.collection('users').get()
-        await update.message.reply_text(f"👥 **বোটে মোট রেজিস্টার্ড ইউজার:** {len(users)} জন।")
+        if not users:
+            await update.message.reply_text("👥 বোটে কোনো রেজিস্টার্ড ইউজার নেই।")
+            return
+        
+        list_text = f"👥 **বোটে মোট রেজিস্টার্ড ইউজার:** {len(users)} জন\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        for idx, u in enumerate(users, 1):
+            ud = u.to_dict()
+            list_text += (
+                f"{idx}. 📛 {ud.get('name', 'Unknown')}\n"
+                f"   🆔 ID: `{ud.get('id')}`\n"
+                f"   ✅ OTP: {ud.get('total_otp', 0)} টি | 💰 Bal: {ud.get('balance', 0.0):.2f} BDT\n"
+                f"──────────────────────\n"
+            )
+            if len(list_text) > 3500:
+                await update.message.reply_text(list_text, parse_mode="Markdown")
+                list_text = ""
+                
+        if list_text:
+            await update.message.reply_text(list_text, parse_mode="Markdown")
+
     elif text == "👤 User Information" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'user_info_search'
-        await update.message.reply_text("🔎 যে ইউজারের তথ্য দেখতে চান তার **Telegram User ID** পাঠান:", reply_markup=get_inline_cancel())
+        await update.message.reply_text("🔎 যে ইউজারের তথ্য দেখতে চান তার **Telegram User ID** অথবা **নাম (Name)** লিখে পাঠান:", reply_markup=get_inline_cancel())
     elif text == "📨 Withdraw Request" and user_id == ADMIN_ID:
         reqs = db.collection('withdraws').where('status', '==', 'pending').get()
         if not reqs:
@@ -451,7 +486,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "📞 **গ্রাহক সেবা কেন্দ্র**\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             "সম্মানিত মেম্বার,\n"
-            "আপনার যেকোনো সমস্যা বা জিজ্ঞাসার জন্য আমাদের সাপোর্ট টিমের সাথে যোগাযোগ করুন।\n\n"
+            "আপনার যেকোনো সমস্যা বা জিজ্ঞাসার জন্য আমাদের সাপোর্ট টি门的 সাথে যোগাযোগ করুন।\n\n"
             "⚠️ **নোট:** অযথা মেসেজ দেওয়া থেকে বিরত থাকুন। ধন্যবাদ!"
         )
         support_kbd = [
@@ -629,7 +664,6 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
                     )
                     
-                    # গ্রুপ বাটন: ক্লিক করলে সরাসরি বোটে গিয়ে /start রান করবে
                     group_buttons = [
                         [
                             InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"),
@@ -682,7 +716,6 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
         f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
     )
 
-    # গ্রুপ বাটন: ক্লিক করলে সরাসরি বোটে গিয়ে /start রান করবে
     group_buttons = [
         [
             InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"),
