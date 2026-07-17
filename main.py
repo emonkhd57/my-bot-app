@@ -113,26 +113,6 @@ async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text("📞 গ্রাহক সেবা কেন্দ্র:\nসম্মানিত মেম্বার, আপনার যেকোনো সমস্যার জন্য সাপোর্ট টিমের সাথে যোগাযোগ করুন।", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# --- এডমিন প্যানেল সিস্টেম ---
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id == ADMIN_ID:
-        keyboard = [
-            [InlineKeyboardButton("💰 বোনাস আপডেট", callback_data="set_bonus"),
-             InlineKeyboardButton("📢 ব্রডকাস্ট", callback_data="broadcast")],
-            [InlineKeyboardButton("👥 ইউজার লিস্ট", callback_data="user_list")]
-        ]
-        await update.message.reply_text("👑 অ্যাডমিন প্যানেল টুলস:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if query.data == "set_bonus":
-        await query.edit_message_text("✅ বোনাস সেট করতে লিখুন: /setbonus <amount>")
-    elif query.data == "broadcast":
-        await query.edit_message_text("✅ ব্রডকাস্ট করতে লিখুন: /broadcast <message>")
-    elif query.data == "user_list":
-        users = db.collection('users').stream()
-        count = sum(1 for _ in users)
-        await query.edit_message_text(f"📊 মোট ব্যবহারকারী: {count}")
 
 # --- ওটিপি ফাংশন ---
 async def get_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
