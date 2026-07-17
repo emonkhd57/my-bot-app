@@ -3,8 +3,8 @@ import os
 import json
 import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import firebase_admin
 from firebase_admin import credentials, firestore
 import requests
@@ -14,6 +14,7 @@ BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
 API_KEY = os.getenv('API_KEY')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
 OTP_GROUP_ID = os.getenv('OTP_GROUP_ID')
+MAIN_CHANNEL_URL = "https://t.me/your_main_channel"  # আপনার মেইন চ্যানেলের লিংক
 BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tnemn/@public/api"
 
 firebase_json = json.loads(os.getenv('FIREBASE_JSON'))
@@ -21,7 +22,7 @@ cred = credentials.Certificate(firebase_json)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# ডেটাবেস থেকে গ্লোবাল কনফিগ নেওয়া
+# --- সেটিংস লোডার ---
 def get_bot_settings():
     settings_ref = db.collection('settings').document('config').get()
     if settings_ref.exists:
@@ -30,14 +31,13 @@ def get_bot_settings():
         default_config = {
             'otp_rate': 2.50,
             'min_withdraw': 110.0,
-            'method_bkash': True,
-            'method_nagad': True,
-            'method_usdt': True
+            'countries': {"Sierra Leone": "sl", "Armenia": "am", "Montenegro": "me", "Guinea": "gn"},
+            'services': {"Instagram": "ig", "Telegram": "tg", "WhatsApp": "wa"}
         }
         db.collection('settings').document('config').set(default_config)
         return default_config
 
-# --- মেনু কিবোর্ডসমূহ ---
+# --- মেইন মেনু কিবোর্ড ---
 def get_main_menu(user_id):
     keyboard = [
         ["🎭 নাম্বার নিন", "💸 ব্যালেন্স"],
@@ -48,39 +48,41 @@ def get_main_menu(user_id):
         keyboard.append(["👑 অ্যাডমিন প্যানেল"])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-def get_admin_menu():
-    keyboard = [
-        ["💸 ওটিপি রেট", "⚙️ মিনিমাম উইথড্র"],
-        ["💰 ব্যালেন্স এডিট", "🔍 ইউজার স্ট্যাটাস"],
-        ["🏆 টপ ১০ ইউজার", "🛠 মেথড অন/অফ"],
-        ["📢 ব্রডকাস্ট", "🔙 মেইন মেনু"]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
 # --- Start Command ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    db.collection('users').document(str(user_id)).set({
-        'id': user_id, 
-        'balance': 0.0,
-        'total_otp': 0
-    }, merge=True)
+    
+    # রেফারেল ট্র্যাকিং
+    args = context.args
+    referrer = None
+    if args and args[0].isdigit() and int(args[0]) != user_id:
+        referrer = args[0]
+
+    user_ref = db.collection('users').document(str(user_id))
+    if not user_ref.get().exists:
+        user_ref.set({
+            'id': user_id, 
+            'name': update.effective_user.first_name,
+            'balance': 0.0,
+            'total_otp': 0,
+            'referred_by': referrer
+        })
+        if referrer:
+            db.collection('users').document(str(referrer)).update({
+                'referrals': firestore.ArrayUnion([str(user_id)])
+            })
     
     text = ("👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম।\n\n"
-            "সরাসরি ইনস্টাগ্রাম নাম্বার পেতে নিচের 🎭 নাম্বার নিন বাটনে প্রেস করুন।")
+            "সরাসরি নাম্বার পেতে নিচের 🎭 নাম্বার নিন বাটন প্রেস করুন।")
     await update.message.reply_text(text, reply_markup=get_main_menu(user_id))
 
-# --- ইউজার ফাংশন ---
+# --- ব্যালেন্স ভিউ ---
 async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user_ref = db.collection('users').document(str(user_id)).get()
+    user_data = db.collection('users').document(str(user_id)).get().to_dict() or {}
     
-    balance = 0.0
-    total_otp = 0
-    if user_ref.exists:
-        user_data = user_ref.to_dict()
-        balance = user_data.get('balance', 0.0)
-        total_otp = user_data.get('total_otp', 0)
+    balance = user_data.get('balance', 0.0)
+    total_otp = user_data.get('total_otp', 0)
         
     text = (f"💲 আপনার ব্যালেন্স\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -91,38 +93,19 @@ async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ মোট ওটিপি রিসিভ: {total_otp} টি")
     await update.message.reply_text(text)
 
-async def withdraw_money(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- দেশ ও সার্ভিস নির্বাচন প্যানেল ---
+async def select_country(update: Update, context: ContextTypes.DEFAULT_TYPE):
     config = get_bot_settings()
-    min_wd = config.get('min_withdraw', 110.0)
+    countries = config.get('countries', {})
     
-    text = f"📥 **টাকা তোলার মাধ্যম সিলেক্ট করুন:**\n(সর্বনিম্ন উইথড্র: {min_wd} BDT)\n\n"
     keyboard = []
+    for c_name in countries.keys():
+        keyboard.append([InlineKeyboardButton(f"🌍 {c_name}", callback_data=f"sel_c_{countries[c_name]}")])
+    keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
     
-    if config.get('method_usdt', True):
-        text += "💳 USDT (BEP-20) -> চালু আছে\n"
-    if config.get('method_bkash', True):
-        text += "📱 বিকাশ -> চালু আছে\n"
-    if config.get('method_nagad', True):
-        text += "📱 নগদ -> চালু আছে\n"
-        
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text("⚡ দেশসমূহ লোড করা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন।\n\n🌍 **দেশ সিলেক্ট করুন:**", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# --- ওটিপি ফাংশন ও ফরওয়ার্ডিং ---
-async def get_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    await update.message.reply_text("⏳ নাম্বার রিকোয়েস্ট প্রসেস হচ্ছে...")
-    
-    try:
-        response = requests.post(f"{BASE_URL}/getnum", headers={"mauthapi": API_KEY}, json={"rid": "26134"}).json()
-        if response.get('meta', {}).get('code') == 200:
-            number = response['data']['full_number']
-            db.collection('orders').document(str(number)).set({'user_id': user_id, 'status': 'active'})
-            await update.message.reply_text(f"✅ নাম্বার পাওয়া গেছে: `{number}`\nওটিপির জন্য অপেক্ষা করুন...", parse_mode="Markdown")
-        else:
-            await update.message.reply_text("❌ দুঃখিত, বর্তমানে কোনো নাম্বার নেই।")
-    except Exception as e:
-        await update.message.reply_text("❌ এপিআই কানেকশনে সমস্যা হয়েছে।")
-
+# --- ওটিপি সফল হলে ফরওয়ার্ড ও ব্যালেন্স ডিস্ট্রিবিউশন ---
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     url = f"{BASE_URL}/success-otp"
     try:
@@ -137,201 +120,208 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                 order = order_ref.get()
                 
                 if order.exists and order.to_dict().get('status') == 'active':
-                    user_id = order.to_dict()['user_id']
+                    order_data = order.to_dict()
+                    user_id = order_data['user_id']
+                    service_name = order_data.get('service_name', 'Instagram')
+                    country_name = order_data.get('country_name', 'Sierra Leone')
                     otp_code = latest_otp['message']
                     
-                    await context.bot.send_message(
-                        chat_id=user_id, 
-                        text=f"🔔 **নতুন ওটিপি এসেছে!**\n📱 নাম্বার: `{number}`\n✉️ কোড: `{otp_code}`\n💰 আপনার ব্যালেন্সে **+{otp_rate:.2f} BDT** যোগ হয়েছে।",
-                        parse_mode="Markdown"
+                    user_ref = db.collection('users').document(str(user_id))
+                    user_data = user_ref.get().to_dict() or {}
+                    
+                    # ১. ইউজারের ব্যালেন্স এবং রেফার বোনাস ডিস্ট্রিবিউশন
+                    cur_bal = user_data.get('balance', 0.0) + otp_rate
+                    user_ref.update({'balance': cur_bal, 'total_otp': user_data.get('total_otp', 0) + 1})
+                    
+                    # আপলাইন রেফারের বোনাস (০.১০ টাকা)
+                    referrer_id = user_data.get('referred_by')
+                    if referrer_id:
+                        ref_user_ref = db.collection('users').document(str(referrer_id))
+                        if ref_user_ref.get().exists:
+                            ref_cur_bal = ref_user_ref.get().to_dict().get('balance', 0.0)
+                            ref_user_ref.update({'balance': ref_cur_bal + 0.10})
+
+                    # আকর্ষক রেফার মেসেজ ব্লক
+                    refer_promo = (
+                        f"📢 **রেফার করে আনলিমিটেড ইনকাম করুন!**\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"🤝 আপনি কাউকে রেফার করলে তার প্রতি ওটিপি রিসিভে আপনি পাবেন নিশ্চিত **০.১০ পয়সা** বোনাস! \n\n"
+                        f"🚀 **হিসাব করে দেখুন:**\n"
+                        f"👥 ১ জন ইউজার ১০০ ওটিপি নিলে = আপনার **১০ টাকা** লাভ!\n"
+                        f"🔥 ২০ জন একটিভ ইউজার ১০০ করে ওটিপি নিলে = দিনে **২০০ টাকা** একদম ফ্রিতে!\n\n"
+                        f"🔗 আপনার রেফারেল লিংক: `https://t.me/{(await context.bot.get_me()).username}?start={user_id}`"
+                    )
+
+                    # ফরম্যাটেড ওটিপি টেক্সট
+                    success_msg = (
+                        f"🔥 **Now OTP Bot** ➔ `Number 1` 📢\n\n"
+                        f"🌍 {country_name} | {service_name}\n"
+                        f"✉️ OTP Code: `{otp_code}`\n\n"
+                        f"👤 User: {user_data.get('name', 'User')}\n"
+                        f"💰 Balance: {cur_bal:.2f} BDT\n\n"
+                        f"{refer_promo}"
                     )
                     
+                    # ২. ইউজার প্যানেলে পাঠানো (বাটন ছাড়া)
+                    await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
+                    
+                    # ৩. ওটিপি গ্রুপে ফরওয়ার্ডিং (ইনলাইন বাটন সহ)
+                    group_buttons = [
+                        [InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{(await context.bot.get_me()).username}")],
+                        [InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]
+                    ]
                     await context.bot.send_message(
                         chat_id=OTP_GROUP_ID, 
-                        text=f"🔔 **গ্রুপ ওটিপি ফরওয়ার্ড!**\n📱 নাম্বার: `{number}`\n✉️ কোড: `{otp_code}`\n👤 ইউজার আইডি: `{user_id}`",
-                        parse_mode="Markdown"
+                        text=success_msg, 
+                        parse_mode="Markdown", 
+                        reply_markup=InlineKeyboardMarkup(group_buttons)
                     )
                     
-                    user_ref = db.collection('users').document(str(user_id))
-                    user_doc = user_ref.get()
-                    if user_doc.exists:
-                        current_bal = user_doc.to_dict().get('balance', 0.0)
-                        current_otp_count = user_doc.to_dict().get('total_otp', 0)
-                        user_ref.update({
-                            'balance': current_bal + otp_rate,
-                            'total_otp': current_otp_count + 1
-                        })
-                    
-                    order_ref.update({'status': 'completed', 'otp_code': otp_code})
+                    order_ref.update({'status': 'completed'})
     except Exception as e:
-        print(f"OTP Loop Error: {e}")
+        print(f"Error in Loop: {e}")
 
-# --- 👑 অ্যাডমিন প্যানেল মেইন ভিউ ---
-async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
-        return
-
-    users_ref = db.collection('users').stream()
-    total_users = sum(1 for _ in users_ref)
+# --- 👑 অ্যাডমিন কন্ট্রোল প্যানেল ---
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
     
-    orders_ref = db.collection('orders').where('status', '==', 'completed').stream()
-    total_success_otp = sum(1 for _ in orders_ref)
+    keyboard = [
+        [InlineKeyboardButton("💸 ওটিপি রেট পরিবর্তন", callback_data="adm_rate"),
+         InlineKeyboardButton("➕ দেশ/সার্ভিস যুক্ত করুন", callback_data="adm_add_service")],
+        [InlineKeyboardButton("📢 ব্রডকাস্ট নোটিশ", callback_data="adm_broad"),
+         InlineKeyboardButton("❌ ক্লোজ প্যানেল", callback_data="cancel_action")]
+    ]
+    await update.message.reply_text("👑 **অ্যাডমিন কন্ট্রোল প্যানেল**\n\nনিচের বাটন চেপে কাজ সম্পন্ন করুন:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-    config = get_bot_settings()
+# --- বাটন রেসপন্স (CallbackQueryHandler) ---
+async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    
+    # দেশ সিলেক্ট করার পর সার্ভিস আনা
+    if data.startswith("sel_c_"):
+        c_code = data.split("_")[2]
+        context.user_data['selected_country_code'] = c_code
+        
+        config = get_bot_settings()
+        services = config.get('services', {})
+        
+        keyboard = []
+        for s_name in services.keys():
+            keyboard.append([InlineKeyboardButton(f"🎯 {s_name}", callback_data=f"sel_s_{services[s_name]}")])
+        keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
+        
+        await query.edit_message_text("🎯 **এবার আপনার কাঙ্ক্ষিত সার্ভিসটি সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
 
-    text = (f"👑 ━━ **অ্যাডমিন কন্ট্রোল প্যানেল** ━━\n\n"
-            f"📊 মোট বোট ইউজার: `{total_users}` জন\n"
-            f"✅ মোট সফল ওটিপি: `{total_success_otp}` টি\n"
-            f"💵 ওটিপি রেট: `{config.get('otp_rate'):.2f} BDT`\n"
-            f"⚙️ মিনিমাম উইথড্র: `{config.get('min_withdraw'):.2f} BDT`\n\n"
-            f"👇 নিচের মেনু বাটন ব্যবহার করে বোট নিয়ন্ত্রণ করুন:")
+    # সার্ভিস সিলেক্ট করার পর ব্যাকগ্রাউন্ডে এপিআই কল
+    elif data.startswith("sel_s_"):
+        s_code = data.split("_")[2]
+        c_code = context.user_data.get('selected_country_code')
+        user_id = query.from_user.id
+        
+        await query.edit_message_text("⚡ ব্যাকগ্রাউন্ডে আপনার নাম্বার খোঁজা হচ্ছে... অনুগ্রহ করে অপেক্ষা করুন।")
+        
+        # ডাইনামিক এপিআই রিকোয়েস্ট পাসিং
+        try:
+            api_res = requests.post(f"{BASE_URL}/getnum", headers={"mauthapi": API_KEY}, json={"rid": "26134", "country": c_code, "service": s_code}).json()
+            if api_res.get('meta', {}).get('code') == 200:
+                number = api_res['data']['full_number']
+                
+                # দেশ ও সার্ভিস এর রিভার্স সার্চ ডেকোরেশন
+                config = get_bot_settings()
+                c_name = next((k for k, v in config['countries'].items() if v == c_code), "Sierra Leone")
+                s_name = next((k for k, v in config['services'].items() if v == s_code), "Instagram")
+                
+                db.collection('orders').document(str(number)).set({
+                    'user_id': user_id, 
+                    'status': 'active',
+                    'country_name': c_name,
+                    'service_name': s_name
+                })
+                
+                await query.message.reply_text(f"✅ **নাম্বার পাওয়া গেছে:** `{number}`\n🌍 দেশ: {c_name}\n🎯 সার্ভিস: {s_name}\n\n⏳ ওটিপির জন্য অপেক্ষা করুন...", parse_mode="Markdown")
+            else:
+                await query.message.reply_text("❌ দুঃখিত, এই দেশ বা সার্ভিসে বর্তমানে কোনো নাম্বার খালি নেই।")
+        except:
+            await query.message.reply_text("❌ এপিআই প্রসেসিং ত্রুটি।")
 
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=get_admin_menu())
+    # অ্যাডমিন প্যানেল ইভেন্ট ট্র্যাকিং
+    elif data == "adm_rate":
+        context.user_data['adm_action'] = 'set_rate'
+        await query.edit_message_text("✍️ নতুন ওটিপি রেট পাঠান (যেমন: 3.50):")
+        
+    elif data == "adm_add_service":
+        context.user_data['adm_action'] = 'add_item'
+        await query.edit_message_text("✍️ নতুন দেশ বা সার্ভিস অ্যাড করতে এভাবে লিখুন:\n\n**দেশের জন্য:** `country দেশ_নাম কোড`\n**সার্ভিসের জন্য:** `service সার্ভিস_নাম কোড`\n\n*উদাহরণ:* `country Bangladesh bd`")
 
-# --- অল-ইন-ওয়ান টেক্সট ইনপুট ও কিবোর্ড হ্যান্ডলার ---
-async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    elif data == "adm_broad":
+        context.user_data['adm_action'] = 'broadcast'
+        await query.edit_message_text("📢 সকল ইউজারের কাছে পাঠানোর জন্য নোটিশটি টাইপ করে দিন:")
+        
+    elif data == "cancel_action":
+        await query.message.delete()
+
+# --- টেক্সট ইনপুট প্রসেসর ---
+async def text_processor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    user_action = context.user_data.get('action')
+    user_id = update.effective_user.id
+    action = context.user_data.get('adm_action')
 
-    # অ্যাডমিন প্যানেল ইনপুট প্রোসেসিং
-    if user_id == ADMIN_ID:
-        if user_action == 'awaiting_rate':
+    if user_id == ADMIN_ID and action:
+        if action == 'set_rate':
             try:
                 db.collection('settings').document('config').update({'otp_rate': float(text)})
-                await update.message.reply_text(f"✅ ওটিপি রেট সফলভাবে `{text} BDT` করা হয়েছে।")
-            except: await update.message.reply_text("❌ ভুল ইনপুট। সঠিক সংখ্যা দিন।")
-            context.user_data['action'] = None
-            return
-        
-        elif user_action == 'awaiting_min_wd':
+                await update.message.reply_text(f"✅ সফলভাবে নতুন রেট `{text} BDT` সেট করা হয়েছে।")
+            except: await update.message.reply_text("❌ ভুল ইনপুট।")
+            
+        elif action == 'add_item':
             try:
-                db.collection('settings').document('config').update({'min_withdraw': float(text)})
-                await update.message.reply_text(f"✅ সর্বনিম্ন উইথড্র লিমিট `{text} BDT` সেট করা হয়েছে।")
-            except: await update.message.reply_text("❌ ভুল ইনপুট। সঠিক সংখ্যা দিন।")
-            context.user_data['action'] = None
-            return
-
-        elif user_action == 'awaiting_bal_edit':
-            try:
-                target_uid, amount = text.split()
-                user_ref = db.collection('users').document(str(target_uid))
-                if user_ref.get().exists:
-                    cur_bal = user_ref.get().to_dict().get('balance', 0.0)
-                    user_ref.update({'balance': cur_bal + float(amount)})
-                    await update.message.reply_text(f"✅ ইউজার `{target_uid}` এর ব্যালেন্সে `{amount}` আপডেট করা হয়েছে।")
-                else: await update.message.reply_text("❌ ইউজার পাওয়া যায়নি।")
-            except: await update.message.reply_text("❌ ভুল ফরম্যাট। নিয়ম: `USER_ID AMOUNT`")
-            context.user_data['action'] = None
-            return
-
-        elif user_action == 'awaiting_user_status':
-            user_ref = db.collection('users').document(str(text.strip())).get()
-            if user_ref.exists:
-                ud = user_ref.to_dict()
-                await update.message.reply_text(f"🔍 **ইউজার তথ্য:**\n🆔 আইডি: `{ud.get('id')}`\n💰 ব্যালেন্স: `{ud.get('balance'):.2f} BDT`\n✅ মোট ওটিপি: `{ud.get('total_otp')} টি`", parse_mode="Markdown")
-            else: await update.message.reply_text("❌ এই আইডির কোনো ইউজার ডেটাবেসে নেই।")
-            context.user_data['action'] = None
-            return
-
-        elif user_action == 'awaiting_method_toggle':
-            config = get_bot_settings()
-            method = text.strip().lower()
-            if method in ['bkash', 'nagad', 'usdt']:
-                key = f"method_{method}"
-                new_status = not config.get(key, True)
-                db.collection('settings').document('config').update({key: new_status})
-                await update.message.reply_text(f"✅ {method.upper()} মেথডটি এখন {'**চালু**' if new_status else '**বন্ধ**'} করা হয়েছে।", parse_mode="Markdown")
-            else: await update.message.reply_text("❌ ভুল মেথড নাম। শুধুমাত্র লিখুন: `bkash`, `nagad` অথবা `usdt`")
-            context.user_data['action'] = None
-            return
-
-        elif user_action == 'awaiting_broadcast':
+                parts = text.split()
+                type_item, name, code = parts[0].lower(), parts[1], parts[2]
+                config = get_bot_settings()
+                
+                if type_item == 'country':
+                    config['countries'][name] = code
+                    db.collection('settings').document('config').update({'countries': config['countries']})
+                elif type_item == 'service':
+                    config['services'][name] = code
+                    db.collection('settings').document('config').update({'services': config['services']})
+                    
+                await update.message.reply_text(f"✅ সফলভাবে নতুন {type_item} হিসেবে `{name}` যুক্ত করা হয়েছে।")
+            except: await update.message.reply_text("❌ ফরম্যাট ভুল। সঠিক নিয়ম ফলো করুন।")
+            
+        elif action == 'broadcast':
             users = db.collection('users').stream()
-            count = 0
             for u in users:
-                try:
-                    await context.bot.send_message(chat_id=u.to_dict().get('id'), text=f"📢 **অফিসিয়াল নোটিশ:**\n\n{text}", parse_mode="Markdown")
-                    count += 1
+                try: await context.bot.send_message(chat_id=u.to_dict()['id'], text=f"📢 **নোটিশ:**\n\n{text}")
                 except: pass
-            await update.message.reply_text(f"✅ সফলভাবে {count} জন ইউজারের কাছে নোটিশ পাঠানো হয়েছে।")
-            context.user_data['action'] = None
-            return
-
-    # অ্যাডমিন কিবোর্ড মেনু বাটন ক্লিক চেক
-    if text == "👑 অ্যাডমিন প্যানেল" and user_id == ADMIN_ID:
-        await show_admin_panel(update, context)
-        return
-    elif text == "🔙 মেইন মেনু" and user_id == ADMIN_ID:
-        await update.message.reply_text("🔙 আপনি মেইন মেনুতে ফিরে এসেছেন।", reply_markup=get_main_menu(user_id))
-        return
-    elif text == "💸 ওটিপি রেট" and user_id == ADMIN_ID:
-        context.user_data['action'] = 'awaiting_rate'
-        await update.message.reply_text("✍️ প্রতি সফল ওটিপির নতুন রেট (টাকা) কত হবে তা লিখে পাঠান:")
-        return
-    elif text == "⚙️ মিনিমাম উইথড্র" and user_id == ADMIN_ID:
-        context.user_data['action'] = 'awaiting_min_wd'
-        await update.message.reply_text("✍️ সর্বনিম্ন উইথড্রর পরিমাণ কত টাকা হবে তা লিখে পাঠান:")
-        return
-    elif text == "💰 ব্যালেন্স এডিট" and user_id == ADMIN_ID:
-        context.user_data['action'] = 'awaiting_bal_edit'
-        await update.message.reply_text("👉 ইউজারের আইডি এবং টাকার পরিমাণ স্পেস দিয়ে লিখুন:\n`USER_ID AMOUNT` (কমাতে মাইনাস দিন)")
-        return
-    elif text == "🔍 ইউজার স্ট্যাটাস" and user_id == ADMIN_ID:
-        context.user_data['action'] = 'awaiting_user_status'
-        await update.message.reply_text("🔍 যে ইউজারের তথ্য দেখতে চান তার Telegram ID লিখে পাঠান:")
-        return
-    elif text == "📢 ব্রডকাস্ট" and user_id == ADMIN_ID:
-        context.user_data['action'] = 'awaiting_broadcast'
-        await update.message.reply_text("📢 সকল ইউজারের উদ্দেশ্যে পাঠানো নোটিশটি টাইপ করে পাঠান:")
-        return
-    elif text == "🛠 মেথড অন/অফ" and user_id == ADMIN_ID:
-        context.user_data['action'] = 'awaiting_method_toggle'
-        await update.message.reply_text("🛠 কোন মেথডটি অন/অফ করতে চান তার নাম ছোট হাতের অক্ষরে লিখে পাঠান:\n👉 লিখুন: `bkash` বা `nagad` বা `usdt`")
-        return
-    elif text == "🏆 টপ ১০ ইউজার" and user_id == ADMIN_ID:
-        # ডেটাবেস থেকে সর্ট করে সবচেয়ে বেশি ওটিপি নেওয়া ১০ ইউজার খোঁজা
-        users_ref = db.collection('users').order_by('total_otp', direction=firestore.Query.DESCENDING).limit(10).stream()
-        leaderboard = "🏆 **সবচেয়ে বেশি ওটিপি নেওয়া টপ ১০ ইউজার:**\n━━━━━━━━━━━━━━━━━━━━━━\n"
-        rank = 1
-        for u in users_ref:
-            ud = u.to_dict()
-            leaderboard += f"{rank}. 👤 ID: `{ud.get('id')}` ➔ 📱 ওটিপি: `{ud.get('total_otp', 0)}` টি\n"
-            rank += 1
-        await update.message.reply_text(leaderboard, parse_mode="Markdown")
+            await update.message.reply_text("✅ ব্রডকাস্ট সফল হয়েছে।")
+            
+        context.user_data['adm_action'] = None
         return
 
-    # --- সাধারণ ইউজার কিবোর্ড মেনু চেক ---
+    # কিবোর্ড ট্রিগার
     if text == "🎭 নাম্বার নিন":
-        await get_number(update, context)
+        await select_country(update, context)
     elif text == "💸 ব্যালেন্স":
         await show_balance(update, context)
+    elif text == "👑 অ্যাডমিন প্যানেল" and user_id == ADMIN_ID:
+        await admin_panel(update, context)
     elif text == "💰 টাকা উত্তোলন":
-        await withdraw_money(update, context)
-    elif text == "🎁 My Referrals":
-        await update.message.reply_text("🔗 আপনার রেফারেল লিংক শীঘ্রই আপডেট করা হবে।")
+        await update.message.reply_text("📥 উইথড্র প্রসেস করার জন্য অ্যাডমিনের সাথে যোগাযোগ করুন।")
     elif text == "🧐 সাপোর্ট":
-        await update.message.reply_text("🎯 যেকোনো সমস্যার জন্য অ্যাডমিনের সাথে সরাসরি যোগাযোগ করুন।")
-
-# --- ডামি সার্ভার রানার ---
-def run_dummy_server():
-    try:
-        server_address = ('', 8080)
-        httpd = HTTPServer(server_address, SimpleHTTPRequestHandler)
-        httpd.serve_forever()
-    except: pass
+        await update.message.reply_text("🎯 যেকোনো প্রয়োজনে সাহায্য পেতে অ্যাডমিন আইডিতে মেসেজ করুন।")
 
 if __name__ == '__main__':
-    threading.Thread(target=run_dummy_server, daemon=True).start()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # ব্যাকগ্রাউন্ড ওটিপি প্রসেসিং জব (প্রতি ১০ সেকেন্ডে রান হবে)
-    job_queue = app.job_queue
-    job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
+    # অটোমেটিক ওটিপি প্রসেসিং জব
+    app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
     
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_inputs))
+    app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_processor))
     
-    print("Bot is successfully running with Custom Keyboard Admin Panel...")
+    print("Bot is successfully running...")
     app.run_polling()
