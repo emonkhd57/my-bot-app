@@ -28,7 +28,7 @@ else:
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
 API_KEY = os.getenv('API_KEY')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
-OTP_GROUP_ID = os.getenv('OTP_GROUP_ID')
+OTP_GROUP_ID = "-1004392024227"  # নতুন গ্রুপ আইডি আপডেট করা হয়েছে
 MAIN_CHANNEL_URL = "https://t.me/your_main_channel"
 BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tnemn/@public/api"
 
@@ -44,7 +44,6 @@ def get_bot_settings():
     settings_ref = db.collection('settings').document('config').get()
     if settings_ref.exists:
         data = settings_ref.to_dict()
-        # সেফটি ফিক্স: যদি ফিল্ডগুলো ডেটাবেজে একদমই না থাকে তবে ফাঁকা ডিকশনারি সেট হবে
         if 'services' not in data:
             data['services'] = {}
         if 'countries' not in data:
@@ -137,7 +136,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 service_code = service_name.lower()[:2]
                 config = get_bot_settings()
                 
-                # ফিক্স: ডেটাবেজে অবজেক্ট মিসিং থাকলে ট্র্যাকিং সেভ করা
                 services_dict = config.get('services', {})
                 services_dict[service_name] = service_code
                 
@@ -147,16 +145,22 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।")
         elif action == 'add_country_input':
             try:
-                c_name, c_code = text.split(None, 1)
-                config = get_bot_settings()
-                
-                countries_dict = config.get('countries', {})
-                countries_dict[c_name] = c_code.lower()
-                
-                db.collection('settings').document('config').update({'countries': countries_dict})
-                await update.message.reply_text(f"✅ দেশ সফলভাবে যুক্ত হয়েছে: {c_name} ({c_code})")
+                # নাম্বারের রেঞ্জ ইনপুট নিতে স্প্লিটিং লজিক ফিক্স
+                parts = text.strip().split()
+                if len(parts) >= 2:
+                    c_code = parts[-1]  # শেষের অংশটি রেঞ্জ কোড (যেমন: 224678XXX বা কোড)
+                    c_name = " ".join(parts[:-1])  # প্রথমের অংশটি দেশের নাম (যেমন: Ivory Coast)
+                    
+                    config = get_bot_settings()
+                    countries_dict = config.get('countries', {})
+                    countries_dict[c_name] = c_code.lower()
+                    
+                    db.collection('settings').document('config').update({'countries': countries_dict})
+                    await update.message.reply_text(f"✅ দেশ সফলভাবে যুক্ত হয়েছে: {c_name} (Range Code: {c_code})")
+                else:
+                    await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Ivory Coast 224678`")
             except: 
-                await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Montenegro me`")
+                await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।")
         elif action == 'user_info_search':
             tgt_user = db.collection('users').document(text).get()
             if tgt_user.exists:
@@ -227,7 +231,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data['adm_action'] = None
         return
 
-    # কিবোর্ড ক্লিকে টেক্সট মেসেজ ক্যাচিং
+    # কিবোর্ড ক্লিকের টেক্সট মেসেজ ক্যাচিং
     if text == "👑 Admin Panel" and user_id == ADMIN_ID:
         await update.message.reply_text("👑 **অ্যাডমিন কন্ট্রোল প্যানেল**", reply_markup=get_admin_menu())
     elif text == "🔙 মেইন মেনু" and user_id == ADMIN_ID:
@@ -333,10 +337,8 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"🔗 **আপনার রেফার লিংক (কপি করতে ক্লিক করুন):**\n"
             f"`https://t.me/{bot_uname}?start={user_id}`\n\n"
             f"──────────────────────\n"
-            f"🔥 **রেফারের অবিশ্বাস্য সুবিধা:**\n"
-            f"💸 রেফার করলে প্রতি otp তে ০.১০ পয়সা করে পাবেন রেফারকৃত ইউজারের কাছ থেকে। ১ ইউজার ১০০ otp নিলে ১০ টাকা পাবেন।\n\n"
-            f"📈 ২০ টা রেফার করলে ১০০ টা করে ওটিপি নিলে user ২০০ টাকা পাবেন প্রতি দিন।\n\n"
-            f"🚀 দেরি না করে এখনই লিংকটি আপনার বন্ধুদের সাথে শেয়ার করুন এবং লাইফটাইম কমিশন উপভোগ করুন! 🎉"
+            f"🔥 **রেফারের সুবিধা:**\n"
+            f"💸 প্রতি সফল ওটিপিতে আপনার রেফারকৃত ইউজারের কাছ থেকে পাবেন লাইফটাইম কমিশন ০.১০ পয়সা! এখনই শেয়ার করুন! 🎉"
         )
         await update.message.reply_text(refer_text, parse_mode="Markdown")
     elif text == "🧐 Support":
@@ -363,7 +365,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['adm_action'] = 'add_country_input'
         context.user_data['adding_country_for_service'] = s_code
         await query.edit_message_text(
-            f"✍️ দেশের নাম ও দেশের শর্ট কোড স্পেস দিয়ে পাঠান।\n\n✍️ উদাহরণ: `Montenegro me`",
+            f"✍️ দেশের নাম ও স্পেস দিয়ে নাম্বারের রেঞ্জ পাঠান।\n\n✍️ উদাহরণ: `Ivory Coast 224678`",
             reply_markup=get_inline_cancel()
         )
         
@@ -376,6 +378,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = []
         for c_name, c_code in countries.items():
+            # ইউজার প্যানেলে শুধু দেশের নাম শো হবে
             keyboard.append([InlineKeyboardButton(f"🌍 {c_name}", callback_data=f"usr_c_{c_code}")])
         keyboard.append([InlineKeyboardButton("⬅️ সার্ভিস তালিকায় ফিরে যান", callback_data="back_to_services")])
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
@@ -397,6 +400,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⚡ ব্যাকগ্রাউন্ডে আপনার নাম্বার খোঁজা হচ্ছে...")
         
         try:
+            # ব্যাকগ্রাউন্ডে রেঞ্জ কোড এপিআই-তে সাবমিট হচ্ছে
             api_res = requests.post(f"{BASE_URL}/getnum", headers={"mauthapi": API_KEY}, json={"rid": "26134", "country": c_code, "service": s_code}).json()
             if api_res.get('meta', {}).get('code') == 200:
                 number = api_res['data']['full_number']
@@ -460,7 +464,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             await query.message.reply_text(cancel_text, parse_mode="Markdown")
 
-# --- ওটিপি চেকার ব্যাকগ্রাউন্ড ফাংশন ---
+# --- ওটিপি চেকার ব্যাকগ্রাউন্ড ফাংশন (স্ক্রিনশটের মতো হুয়াকু মডিউল ফিক্স) ---
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     url = f"{BASE_URL}/success-otp"
     try:
@@ -478,7 +482,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                     order_data = order.to_dict()
                     user_id = order_data['user_id']
                     service_name = order_data.get('service_name', 'Facebook')
-                    country_name = order_data.get('country_name', 'Montenegro')
+                    country_name = order_data.get('country_name', 'Ivory Coast')
                     otp_code = latest_otp['message']
                     
                     user_ref = db.collection('users').document(str(user_id))
@@ -494,15 +498,22 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             ref_cur_bal = ref_user_ref.get().to_dict().get('balance', 0.0)
                             ref_user_ref.update({'balance': ref_cur_bal + 0.10})
 
+                    # স্ক্রিনশটের মতো একদম সেম টেক্সট ফরম্যাট (কোটেশন বাটন স্টাইল)
                     success_msg = (
-                        f"🔥 **Now OTP Bot** ➔ `Number 1` 📢\n\n🌍 {country_name} | {service_name}\n"
-                        f"✉️ OTP Code: `{otp_code}`\n\n👤 User: {user_data.get('name', 'User')}\n"
-                        f"💰 Balance: {cur_bal:.2f} BDT\n"
+                        f"**Now Otp**\n"
+                        f"📢 `Number 1 ❞` \n\n"
+                        f"🔸 {country_name} | {service_name}\n\n"
+                        f"👤 **User:** {user_data.get('name', 'User')}\n"
+                        f"💰 **Balance:** {cur_bal:.2f} BDT\n"
+                        f"✉️ **OTP Code:** `{otp_code}`\n"
                         f"──────────────────────\n"
-                        f"💡 প্রতি ওটিপিতে ০.১০ পয়সা ফ্রিতে পেতে চান? এখনই আপনার বন্ধুদের বোটের লিংক শেয়ার করে রেফার করা শুরু করুন! মেইন মেনুর 🎁 My Referrals বাটনে আপনার লিংকটি পেয়ে যাবেন। 🤑"
+                        f"🎁 *প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন!* 🚀"
                     )
+                    
+                    # ইউজারের ইনবক্সে কোনো বাটন ছাড়া মেসেজ পাঠানো হলো
                     await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
                     
+                    # ওটিপি গ্রুপে বাটনসহ মেসেজ পাঠানো হলো
                     group_buttons = [
                         [InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{(await context.bot.get_me()).username}")],
                         [InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]
