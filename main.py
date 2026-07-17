@@ -8,11 +8,21 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 import firebase_admin
 from firebase_admin import credentials, firestore
 import requests
+import asyncio
+import io
+import re
+import html
+import random
+import string
+from datetime import datetime
+from telegram.error import TelegramError
+# আপনার বর্তমান ইমপোর্টগুলোর সাথে এগুলো যোগ করে দিন
 
 # --- কনফিগারেশন ---
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
 API_KEY = os.getenv('API_KEY')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
+ADMINS = [ADMIN_ID]
 OTP_GROUP_ID = os.getenv('OTP_GROUP_ID') # ওটিপি ফরওয়ার্ড করার গ্রুপ আইডি
 BASE_URL = "https://api.2oo9.cloud/MXS47FLFX0U/tnemn/@public/api"
 
