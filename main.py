@@ -31,12 +31,71 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ["💰 টাকা উত্তোলন", "🎁 My Referrals"],
         ["🧐 সাপোর্ট"]
     ]
-    # যদি অ্যাডমিন হয়, তবেই মেনুতে অ্যাডমিন প্যানেল দেখাবে
     if user_id == ADMIN_ID:
         keyboard.append(["👑 অ্যাডমিন প্যানেল"])
         
     await update.message.reply_text("👋 স্বাগতম! নিচে ক্লিক করুন:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
 
+# --- অ্যাডমিন প্যানেল (মেইন) ---
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    keyboard = [
+        [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="admin_user_mgmt")],
+        [InlineKeyboardButton("⚙️ SYSTEM CONFIGURATION", callback_data="admin_sys_conf")],
+        [InlineKeyboardButton("🔗 REQUIRED CHANNELS", callback_data="admin_req_chan")],
+        [InlineKeyboardButton("⚡ FAKE OTP", callback_data="admin_fake_otp")],
+        [InlineKeyboardButton("🔙 BACK TO MAIN", callback_data="back_main")]
+    ]
+    await update.message.reply_text("👑 প্রধান অ্যাডমিন মেনু:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+# --- অ্যাডমিন বাটন হ্যান্ডলার ---
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+
+    if data == "back_main":
+        await query.edit_message_text("🔙 আপনি মেইন মেনুতে ফিরে গেছেন।")
+    
+    elif data == "admin_user_mgmt":
+        keyboard = [
+            [InlineKeyboardButton("📢 SEND MESSAGE TO ALL USERS", callback_data="bc_all")],
+            [InlineKeyboardButton("🆔 ALL USER ID", callback_data="all_ids"), InlineKeyboardButton("📜 BAN USER LIST", callback_data="ban_list")],
+            [InlineKeyboardButton("💰 ALL USER BALANCE", callback_data="all_bal"), InlineKeyboardButton("👥 USER LIST (ALL)", callback_data="all_users")],
+            [InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_home")]
+        ]
+        await query.edit_message_text("👥 ইউজার ম্যানেজমেন্ট:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "admin_sys_conf":
+        keyboard = [
+            [InlineKeyboardButton("📈 TODAY ALL STATUS", callback_data="t_stat"), InlineKeyboardButton("👤 USER STATUS CHECK", callback_data="u_stat")],
+            [InlineKeyboardButton("⛔ BAN USER", callback_data="ban_u"), InlineKeyboardButton("🔓 UNBAN USER", callback_data="unban_u")],
+            [InlineKeyboardButton("📜 BAN USER LIST", callback_data="ban_list")],
+            [InlineKeyboardButton("➖ REMOVE BALANCE", callback_data="rem_bal"), InlineKeyboardButton("➕ ADD BALANCE", callback_data="add_bal")],
+            [InlineKeyboardButton("⚙️ CHANGE MIN WITHDRAW", callback_data="c_min_wit"), InlineKeyboardButton("💳 TOGGLE PAYMENT METHODS", callback_data="pay_m")],
+            [InlineKeyboardButton("💲 CHANGE OTP PRICE", callback_data="otp_p"), InlineKeyboardButton("🔧 SET USER OTP RATE", callback_data="s_otp_r")],
+            [InlineKeyboardButton("📋 VIEW USER OTP RATE", callback_data="v_otp_r")],
+            [InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_home")]
+        ]
+        await query.edit_message_text("⚙️ সিস্টেম কনফিগারেশন:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "admin_req_chan":
+        keyboard = [
+            [InlineKeyboardButton("➕ ADD CHANNEL", callback_data="add_ch"), InlineKeyboardButton("❌ REMOVE CHANNEL", callback_data="rem_ch")],
+            [InlineKeyboardButton("📋 LIST CHANNELS", callback_data="list_ch")],
+            [InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_home")]
+        ]
+        await query.edit_message_text("🔗 রিকোয়ার্ড চ্যানেল:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "admin_fake_otp":
+        keyboard = [
+            [InlineKeyboardButton("📊 STATUS (চালু/বন্ধ)", callback_data="f_stat"), InlineKeyboardButton("▶️ START", callback_data="f_start"), InlineKeyboardButton("⏹ STOP", callback_data="f_stop")],
+            [InlineKeyboardButton("⚙️ SETTINGS", callback_data="f_set")],
+            [InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_home")]
+        ]
+        await query.edit_message_text("⚡ ফেক ওটিপি:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif data == "admin_home":
+        await admin_panel(update, context)
 # --- বাটন ফাংশনাল হ্যান্ডলার ---
 async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = ("💵 আপনার ব্যালেন্স\n"
