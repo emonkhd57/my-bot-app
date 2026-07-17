@@ -4,7 +4,7 @@ import json
 import asyncio
 import sys
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import firebase_admin
@@ -44,7 +44,6 @@ db = firestore.client()
 
 # --- প্রিমিয়াম সার্ভিস ইমোজি হেল্পার ---
 def get_service_emoji(service_name):
-    """সার্ভিসের জন্য সবচেয়ে আকর্ষণীয় ও মানানসই প্রিমিয়াম ইমোজি রিটার্ন করে"""
     srv = service_name.lower()
     if "telegram" in srv:
         return "✈️"
@@ -85,7 +84,7 @@ def get_bot_settings():
         return data
     else:
         default_config = {
-            'otp_rate': 2.50,
+            'otp_rate': 0.70,  # ওটিপি রেট ০.৭০ বিডিটি সেট করা হয়েছে
             'min_withdraw': 110.0,
             'countries': {"Montenegro": "me", "Guinea": "gn"},
             'services': {"Facebook": "fb", "Telegram": "tg"},
@@ -151,7 +150,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ দুঃখিত, আপনাকে এই বোট থেকে ব্যান করা হয়েছে।")
             return
     
-    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম।\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
+    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে स्वागतম।\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
     await update.message.reply_text(text, reply_markup=get_main_menu(user_id))
 
 async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -407,7 +406,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "🎭 Number নিন":
         config = get_bot_settings()
         services = config.get('services', {})
-        otp_rate = config.get('otp_rate', 2.50)
+        otp_rate = config.get('otp_rate', 0.70)
         keyboard = []
         for s_name, s_code in services.items():
             s_emoji = get_service_emoji(s_name)
@@ -470,15 +469,17 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     data = query.data
     
-    if data.startswith("copy_code_"):
-        otp_to_copy = data.split("_")[2]
-        await query.answer(text=f"📋 OTP Code: {otp_to_copy} (কপি করা হয়েছে!)", show_alert=True)
+    # --- পপ-আপ ওটিপি কপি হ্যান্ডলার ---
+    if data.startswith("copy_"):
+        otp_code = data.split("_")[1]
+        await query.answer(text=f"📋 ওটিপি কোড: {otp_code}\n\n(কপি করতে চাপ দিয়ে ধরে রাখুন)", show_alert=True)
         return
 
-    elif data.startswith("toggle_api_"):
+    await query.answer()
+
+    if data.startswith("toggle_api_"):
         api_id = data.split("_")[2]
         all_apis = db.collection('api_providers').get()
         for a in all_apis:
@@ -531,7 +532,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "back_to_services":
         config = get_bot_settings()
         services = config.get('services', {})
-        otp_rate = config.get('otp_rate', 2.50)
+        otp_rate = config.get('otp_rate', 0.70)
         keyboard = []
         for s_name, s_code in services.items():
             s_emoji = get_service_emoji(s_name)
@@ -635,7 +636,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
         data = requests.get(url, headers={"mauthapi": active_api['api_key']}).json()
         if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
             config = get_bot_settings()
-            otp_rate = config.get('otp_rate', 2.50)
+            otp_rate = config.get('otp_rate', 0.70)
             
             for latest_otp in data['data']['otps']:
                 number = str(latest_otp['number'])
@@ -646,7 +647,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                     order_data = order.to_dict()
                     user_id = order_data['user_id']
                     service_name = order_data.get('service_name', 'Facebook')
-                    country_name = order_data.get('country_name', 'Ivory Coast')
+                    country_name = order_data.get('country_name', 'Sierra leone')
                     otp_code = str(latest_otp['message'])
                     
                     user_ref = db.collection('users').document(str(user_id))
@@ -662,42 +663,38 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             ref_cur_bal = ref_user_ref.get().to_dict().get('balance', 0.0)
                             ref_user_ref.update({'balance': ref_cur_bal + 0.10})
 
-                    # দেশের কোড অনুযায়ী প্রথম অংশ মাস্ক করা এবং শেষ ৫টি ডিজিট দৃশ্যমান রাখা
-                    if len(number) > 5:
-                        masked_number = "XXXXX" + number[-5:]
-                    else:
-                        masked_number = number
+                    # দেশের কোড অনুযায়ী শেষের ৫ ডিজিট দৃশ্যমান রেখে নাম্বার মাস্কিং
+                    masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
 
-                    # একদম ডান কোণায় টাইম অ্যান্ড ব্যালেন্সের জন্য সুন্দর স্পেস ক্যালকুলেশন
-                    current_time = datetime.now().strftime("%I:%M %p")
-                    balance_str = f"💰 Balance: {cur_bal:.2f} BDT"
-                    rate_str = f"(Add +{otp_rate:.2f} BDT) 🕒 {current_time}"
-                    total_width = 45  # স্ট্যান্ডার্ড চ্যাট স্ক্রিন স্পেস
-                    space_count = max(1, total_width - (len(balance_str) + len(rate_str)))
-                    spaced_line = f"{balance_str}{' ' * space_count}{rate_str}"
+                    # একদম ডান কোণায় ব্যালেন্স ও প্লাস অ্যামাউন্ট বিন্যাস
+                    balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
+                    add_part = f"+{otp_rate:.2f} BDT"
+                    total_width = 45  
+                    space_count = max(1, total_width - (len(balance_part) + len(add_part)))
+                    spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
 
                     success_msg = (
                         f"✨ **Now OTP**\n"
                         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                        f"📱 **Number:** `{masked_number}`\n"
+                        f"📱 **Number:** {masked_number}\n"
                         f"🌍 **Country:** {country_name}\n"
                         f"🎯 **Service:** {service_name}\n"
                         f"👤 **User:** {user_data.get('name', 'User')}\n"
-                        f"{spaced_line}\n"
+                        f"{spaced_line}\n\n"
                         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
                         f"🎁 *প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন!* 🚀"
                     )
                     
-                    # শুধু ওটিপি কপি করতে স্পেশাল সিঙ্গেল বাটন
+                    # শুধু ওটিপি কোড দেখানোর বাটন (যার উপর ক্লিক করলে পপ-আপে ওটিপি আসবে)
                     user_buttons = [
-                        [InlineKeyboardButton(f"📋 Copy OTP: {otp_code}", callback_data=f"copy_code_{otp_code}")]
+                        [InlineKeyboardButton(f"📋 OTP CODE: {otp_code}", callback_data=f"copy_{otp_code}")]
                     ]
                     await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(user_buttons))
                     
-                    # গ্রুপ মেসেজে ওটিপি বাটনটি আলাদা লাইনে থাকবে এবং নিচের অন্য দুটি বাটন পাশাপাশি থাকবে
+                    # গ্রুপ মেসেজের জন্য বড় ওটিপি বাটন আলাদা এবং বাকি দুটি বাটন পাশাপাশি
                     group_buttons = [
                         [
-                            InlineKeyboardButton(f"📋 OTP Code: {otp_code}", callback_data=f"copy_code_{otp_code}")
+                            InlineKeyboardButton(f"📋 OTP CODE: {otp_code}", callback_data=f"copy_{otp_code}")
                         ],
                         [
                             InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{(await context.bot.get_me()).username}"),
@@ -722,7 +719,7 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     
     services_list = list(config.get('services', {"Facebook": "fb", "Telegram": "tg"}).keys())
     countries_list = list(config.get('countries', {"Ivory Coast": "225079", "Afghanistan": "9374404"}).keys())
-    otp_rate = config.get('otp_rate', 2.50)
+    otp_rate = config.get('otp_rate', 0.70)
     
     if not services_list: services_list = ["Facebook", "Telegram", "WhatsApp", "IMO"]
     if not countries_list: countries_list = ["Ivory Coast", "Afghanistan", "Guinea", "Montenegro"]
@@ -732,7 +729,7 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     rand_country = random.choice(countries_list)
     rand_balance = round(random.uniform(10.50, 450.00), 2)
     
-    # সার্ভিস অনুযায়ী ডাইনামিক রিয়ালিস্টিক ওটিপি জেনারেশন
+    # ওটিপি জেনারেশন
     srv_lower = rand_service.lower()
     if "facebook" in srv_lower or "fb" in srv_lower:
         rand_otp = str(random.randint(10000, 99999))
@@ -743,26 +740,25 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     else:
         rand_otp = str(random.randint(100000, 999999))
 
-    # র্যান্ডম কান্ট্রি কোড সহ ফেক মোবাইল নম্বর জেনারেট করে মাস্কিং করা
+    # মোবাইল নম্বর মাস্কিং
     fake_num = "+" + "".join([str(random.randint(0, 9)) for _ in range(11)])
     masked_number = "XXXXX" + fake_num[-5:]
 
-    # একদম ডান কোণায় টাইম ও বোনাস রেট সেট করার স্পেস অ্যালাইনমেন্ট
-    current_time = datetime.now().strftime("%I:%M %p")
-    balance_str = f"💰 Balance: {rand_balance:.2f} BDT"
-    rate_str = f"(Add +{otp_rate:.2f} BDT) 🕒 {current_time}"
+    # একদম ডান কোণায় ব্যালেন্স ও প্লাস অ্যামাউন্ট বিন্যাস
+    balance_part = f"💰 Balance: {rand_balance:.2f} BDT"
+    add_part = f"+{otp_rate:.2f} BDT"
     total_width = 45  
-    space_count = max(1, total_width - (len(balance_str) + len(rate_str)))
-    spaced_line = f"{balance_str}{' ' * space_count}{rate_str}"
+    space_count = max(1, total_width - (len(balance_part) + len(add_part)))
+    spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
 
     fake_msg = (
         f"✨ **Now OTP**\n"
         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-        f"📱 **Number:** `{masked_number}`\n"
+        f"📱 **Number:** {masked_number}\n"
         f"🌍 **Country:** {rand_country}\n"
         f"🎯 **Service:** {rand_service}\n"
         f"👤 **User:** {rand_name}\n"
-        f"{spaced_line}\n"
+        f"{spaced_line}\n\n"
         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
         f"🎁 *প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন!* 🚀"
     )
@@ -770,7 +766,7 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     # গ্রুপ মেসেজের জন্য বড় ওটিপি বাটন আলাদা এবং নিচের অন্য দুটি বাটন এক লাইনে পাশাপাশি
     group_buttons = [
         [
-            InlineKeyboardButton(f"📋 OTP Code: {rand_otp}", callback_data=f"copy_code_{rand_otp}")
+            InlineKeyboardButton(f"📋 OTP CODE: {rand_otp}", callback_data=f"copy_{rand_otp}")
         ],
         [
             InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{(await context.bot.get_me()).username}"),
