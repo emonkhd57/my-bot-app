@@ -28,8 +28,10 @@ else:
 # --- কনফিগারেশন ---
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
+
+# আপনার পাঠানো নতুন ওটিপি গ্রুপ আইডি ও সঠিক লিংক
 OTP_GROUP_ID = "-1003656135640"
-MAIN_CHANNEL_URL = "https://t.me/helptg100"
+MAIN_CHANNEL_URL = "https://t.me/helptg100" # আপনার পাবলিক বা ইনভাইট লিংকটি এখানে বসাতে পারেন (অথবা গ্রুপের ইউজারনেম)
 
 # ফায়ারবেস ইনিশিয়ালাইজেশন
 if not firebase_admin._apps:
@@ -176,7 +178,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             except: 
                 await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।")
         
-        # --- নতুন এপিআই প্রোভাইডার যোগ করার ধাপসমূহ ---
         elif action == 'add_api_step1':
             context.user_data['temp_api_name'] = text.strip()
             context.user_data['adm_action'] = 'add_api_step2'
@@ -192,7 +193,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             api_name = context.user_data.get('temp_api_name')
             api_key = context.user_data.get('temp_api_key')
             
-            # ডেটাবেজে সেভ করা
             prov_id = api_name.lower().replace(" ", "_")
             db.collection('api_providers').document(prov_id).set({
                 'id': prov_id,
@@ -273,7 +273,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data['adm_action'] = None
         return
 
-    # কিবোর্ড ক্লিকের টেক্সট মেসেজ ক্যাচিং
     if text == "👑 Admin Panel" and user_id == ADMIN_ID:
         await update.message.reply_text("👑 **অ্যাডমিন কন্ট্রোল প্যানেল**", reply_markup=get_admin_menu())
     elif text == "🔙 মেইন মেনু" and user_id == ADMIN_ID:
@@ -313,7 +312,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await update.message.reply_text("🗑️ **কোন দেশটি রিমুভ করতে চান সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
     
-    # --- ফেক ওটিপি টগল বাটন হ্যান্ডলিং ---
     elif text.startswith("📢 Fake OTP:") and user_id == ADMIN_ID:
         config = get_bot_settings()
         current_status = config.get('fake_otp_enabled', False)
@@ -323,7 +321,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         status_text = "চালু 🟢" if new_status else "বন্ধ 🔴"
         await update.message.reply_text(f"📢 ফেক ওটিপি লুপটি সফলভাবে **{status_text}** করা হয়েছে।", reply_markup=get_admin_menu())
 
-    # --- এপিআই কন্ট্রোল প্যানেল ট্রিগার ---
     elif text == "🔌 Manage APIs" and user_id == ADMIN_ID:
         providers = db.collection('api_providers').stream()
         keyboard = []
@@ -476,7 +473,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if s_name in services:
             del services[s_name]
             db.collection('settings').document('config').update({'services': services})
-            await query.edit_message_text(f"✅ **{s_name}** সার্ভিসটি সফলভাবে রিমুভ করা হয়েছে।")
+            await query.edit_message_text(f"✅ **{s_name}** сервисটি সফলভাবে রিমুভ করা হয়েছে।")
             
     elif data.startswith("rem_cnt_"):
         c_name = data.split("_")[2]
@@ -551,7 +548,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📥 ওটিপির জন্য অপেক্ষা করুন..."
                 )
                 action_buttons = [
-                    [InlineKeyboardButton("📢 ওটিপি গ্রুপ", https://t.me/emsms10), InlineKeyboardButton("🔄 নাম্বার পরিবর্তন করুন", callback_data=f"change_num_{c_code}")],
+                    [InlineKeyboardButton("📢 ওটিপি গ্রুপ", url=MAIN_CHANNEL_URL), InlineKeyboardButton("🔄 নাম্বার পরিবর্তন করুন", callback_data=f"change_num_{c_code}")],
                     [InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")]
                 ]
                 await query.edit_message_text(num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="Markdown")
@@ -657,31 +654,25 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
 # --- ফেক ওটিপি লুপ ব্যাকগ্রাউন্ড টাস্ক ---
 async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     config = get_bot_settings()
-    # যদি ফেক ওটিপি অন থাকে তবেই চলবে
     if not config.get('fake_otp_enabled', False):
         return
 
-    # র্যান্ডম ডেটা জেনারেট করার জন্য লিস্ট
     fake_names = [
         "Sabbir", "Rahat", "Emon", "Tanvir", "Noyon", "Alamin", "Sujon", "Mim", "Riya", "Nipa", 
         "Hasan", "Arif", "Shakil", "Kamrul", "Sajid", "Rifat", "Sumon", "Rasel", "Fahim", "Naim"
     ]
     
-    # বোটে সেট করা রিয়েল সার্ভিস ও দেশের তালিকা থেকেই র্যান্ডমলি বেছে নেবে
     services_list = list(config.get('services', {"Facebook": "fb", "Telegram": "tg"}).keys())
     countries_list = list(config.get('countries', {"Ivory Coast": "225079", "Afghanistan": "9374404"}).keys())
     
-    # ফলব্যাক প্রোটেকশন
     if not services_list: services_list = ["Facebook", "Telegram", "WhatsApp", "IMO"]
     if not countries_list: countries_list = ["Ivory Coast", "Afghanistan", "Guinea", "Montenegro"]
 
-    # র্যান্ডম ডেটা সিলেকশন
     rand_name = random.choice(fake_names)
     rand_service = random.choice(services_list)
     rand_country = random.choice(countries_list)
     rand_balance = round(random.uniform(10.50, 450.00), 2)
     
-    # বিভিন্ন ফরম্যাটের ওটিপি কোড জেনারেশন (৪ থেকে ৬ ডিজিট)
     otp_formats = [
         str(random.randint(1000, 9999)),
         str(random.randint(10000, 99999)),
@@ -690,7 +681,6 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     ]
     rand_otp = random.choice(otp_formats)
 
-    # আসল ওটিপির হুবহু ফরম্যাট (কোনো ডেটাবেজ আপডেট হবে না)
     fake_msg = (
         f"**Now Otp**\n"
         f"📢 `Number 1 ❞` \n\n"
@@ -708,7 +698,6 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     ]
 
     try:
-        # শুধুমাত্র গ্রুপ চ্যাটে মেসেজ পাঠানো হচ্ছে
         await context.bot.send_message(
             chat_id=OTP_GROUP_ID, 
             text=fake_msg, 
@@ -743,10 +732,7 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # রিয়েল ওটিপি চেকার (১০ সেকেন্ড পরপর চলে)
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
-    
-    # ফেক ওটিপি জেনারেটর (১০ সেকেন্ড পরপর গ্রুপে মেসেজ পাঠাবে)
     app.job_queue.run_repeating(fake_otp_generator, interval=10, first=10)
     
     app.add_handler(CommandHandler("start", start))
