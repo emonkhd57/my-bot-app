@@ -424,7 +424,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("⚡ ব্যাকগ্রাউন্ডে আপনার নাম্বার খোঁজা হচ্ছে...")
         
         try:
-            api_res = requests.post(f"{BASE_URL}/getnum", headers={"mauthapi": API_KEY}, json={"rid": "26134", "country": c_code, "service": s_code}).json()
+            # ডায়নামিক রিকোয়েস্ট কোড সেট করা হলো যাতে সঠিক দেশের নাম্বার আসে
+            api_payload = {
+                "rid": c_code,      
+                "country": c_code, 
+                "service": s_code
+            }
+            
+            api_res = requests.post(f"{BASE_URL}/getnum", headers={"mauthapi": API_KEY}, json=api_payload).json()
             if api_res.get('meta', {}).get('code') == 200:
                 number = api_res['data']['full_number']
                 config = get_bot_settings()
