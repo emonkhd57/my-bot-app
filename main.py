@@ -26,12 +26,9 @@ def get_main_menu(user_id):
     keyboard = [
         ["🎭 নাম্বার নিন", "💸 ব্যালেন্স"],
         ["💰 টাকা উত্তোলন", "🎁 My Referrals"],
-        ["🧐 সাপোর্ট", "🆕 আমি নতুন"]
+        ["🧐 সাপোর্ট",]
     ]
-    if user_id == ADMIN_ID:
-        keyboard.append(["👑 অ্যাডমিন প্যানেল"])
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
+    
 # --- Start Command ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -40,40 +37,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "সরাসরি ইনস্টাগ্রাম নাম্বার পেতে নিচের 🎭 Number বাটনে প্রেস করুন।")
     await update.message.reply_text(text, reply_markup=get_main_menu(user_id))
 
-# --- অ্যাডমিন প্যানেল ---
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    keyboard = [
-        [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="adm_user_mgmt")],
-        [InlineKeyboardButton("⚙️ SYSTEM CONFIGURATION", callback_data="adm_sys_conf")],
-        [InlineKeyboardButton("💲 ওটিপি রেট পরিবর্তন", callback_data="change_otp_rate")],
-        [InlineKeyboardButton("🔙 BACK TO MAIN", callback_data="back_main")]
-    ]
-    await update.message.reply_text("👑 প্রধান অ্যাডমিন মেনু:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    data = query.data
 
-    if data == "back_main":
-        await query.edit_message_text("🔙 প্রধান মেনুতে ফিরে এসেছেন।")
-    elif data == "adm_user_mgmt":
-        keyboard = [
-            [InlineKeyboardButton("📢 SEND MSG TO ALL", callback_data="bc_all")],
-            [InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_main")]
-        ]
-        await query.edit_message_text("👥 ইউজার ম্যানেজমেন্ট:", reply_markup=InlineKeyboardMarkup(keyboard))
-    elif data == "change_otp_rate":
-        await query.edit_message_text("💰 নতুন ওটিপি রেট লিখুন (যেমন: ২০):")
-        context.user_data['waiting_for_rate'] = True
-    elif data == "admin_main":
-        keyboard = [
-            [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="adm_user_mgmt")],
-            [InlineKeyboardButton("⚙️ SYSTEM CONFIGURATION", callback_data="adm_sys_conf")],
-            [InlineKeyboardButton("💲 ওটিপি রেট পরিবর্তন", callback_data="change_otp_rate")]
-        ]
-        await query.edit_message_text("👑 প্রধান অ্যাডমিন মেনু:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 # --- ইউজার ফাংশন ---
 async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
