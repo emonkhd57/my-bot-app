@@ -551,7 +551,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📥 ওটিপির জন্য অপেক্ষা করুন..."
                 )
                 action_buttons = [
-                    [InlineKeyboardButton("📢 ওটিপি গ্রুপ", url=https://t.me/emsms10), InlineKeyboardButton("🔄 নাম্বার পরিবর্তন করুন", callback_data=f"change_num_{c_code}")],
+                    [InlineKeyboardButton("📢 ওটিপি গ্রুপ", https://t.me/emsms10), InlineKeyboardButton("🔄 নাম্বার পরিবর্তন করুন", callback_data=f"change_num_{c_code}")],
                     [InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")]
                 ]
                 await query.edit_message_text(num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="Markdown")
