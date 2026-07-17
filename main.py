@@ -29,7 +29,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id == ADMIN_ID: keyboard.append(["👑 অ্যাডমিন প্যানেল"])
     await update.message.reply_text("👋 স্বাগতম! নিচে ক্লিক করুন:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
 
-# --- অ্যাডমিন প্যানেল ---
+# --- অ্যাডমিন প্যানেল (এডিট মোড) ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     keyboard = [
@@ -55,6 +55,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "admin_main" or data == "adm_admin":
         await admin_panel(update, context)
     
+    # ইউজার ম্যানেজমেন্ট সাব-মেনু
     elif data == "adm_user_mgmt":
         keyboard = [
             [InlineKeyboardButton("📢 SEND MSG TO ALL", callback_data="bc_all")],
@@ -64,6 +65,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.edit_message_text("👥 ইউজার ম্যানেজমেন্ট:", reply_markup=InlineKeyboardMarkup(keyboard))
 
+    # সিস্টেম কনফিগারেশন সাব-মেনু
     elif data == "adm_sys_conf":
         keyboard = [
             [InlineKeyboardButton("📈 STATUS", callback_data="t_stat"), InlineKeyboardButton("👤 CHECK", callback_data="u_stat")],
@@ -73,8 +75,8 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_main")]
         ]
         await query.edit_message_text("⚙️ সিস্টেম কনফিগারেশন:", reply_markup=InlineKeyboardMarkup(keyboard))
-
-# --- ব্যালেন্স এবং অন্যান্য ---
+        
+# --- বাটন ফাংশনাল হ্যান্ডলার ---
 async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = ("💵 আপনার ব্যালেন্স\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -102,7 +104,8 @@ async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text("📞 গ্রাহক সেবা কেন্দ্র:\nসম্মানিত মেম্বার, আপনার যেকোনো সমস্যার জন্য সাপোর্ট টিমের সাথে যোগাযোগ করুন।", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# --- ওটিপি লজিক ---
+
+# --- ওটিপি ফাংশন ---
 async def get_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     url = f"{BASE_URL}/getnum"
@@ -129,7 +132,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
             order = order_ref.get()
             if order.exists:
                 user_id = order.to_dict()['user_id']
-                bonus = 0.50 
+                bonus = db.collection('bot_state').document('1').get().to_dict().get('bonus_per_otp', 0.50)
                 await context.bot.send_message(chat_id=user_id, text=f"🔔 নতুন ওটিপি এসেছে!\n📱 নাম্বার: {number}\n✉️ কোড: {latest_otp['message']}\n💰 বোনাস: {bonus} BDT")
                 order_ref.update({'status': 'completed'})
     except Exception as e:
@@ -147,6 +150,7 @@ if __name__ == '__main__':
     threading.Thread(target=run_dummy_server, daemon=True).start()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
+    # এখানে JobQueue সঠিকভাবে সংযুক্ত করা হয়েছে
     if app.job_queue:
         app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
     
