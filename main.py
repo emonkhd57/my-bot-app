@@ -21,69 +21,60 @@ cred = credentials.Certificate(firebase_json)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# --- মেইন মেনু হ্যান্ডলার ---
+# --- মেইন মেনু ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     db.collection('users').document(str(user_id)).set({'id': user_id}, merge=True)
-    
-    keyboard = [
-        ["🎭 নাম্বার নিন", "💸 ব্যালেন্স"],
-        ["💰 টাকা উত্তোলন", "🎁 My Referrals"],
-        ["🧐 সাপোর্ট"]
-    ]
-    if user_id == ADMIN_ID:
-        keyboard.append(["👑 অ্যাডমিন প্যানেল"])
-        
+    keyboard = [["🎭 নাম্বার নিন", "💸 ব্যালেন্স"], ["💰 টাকা উত্তোলন", "🎁 My Referrals"], ["🧐 সাপোর্ট"]]
+    if user_id == ADMIN_ID: keyboard.append(["👑 অ্যাডমিন প্যানেল"])
     await update.message.reply_text("👋 স্বাগতম! নিচে ক্লিক করুন:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
 
-# --- ইউনিফাইড অ্যাডমিন প্যানেল ---
+# --- অ্যাডমিন প্যানেল (এডিট মোড) ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id != ADMIN_ID: return
-    
+    if update.effective_user.id != ADMIN_ID: return
     keyboard = [
-        [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="admin_user_mgmt")],
-        [InlineKeyboardButton("⚙️ SYSTEM CONFIGURATION", callback_data="admin_sys_conf")],
-        [InlineKeyboardButton("🔗 REQUIRED CHANNELS", callback_data="admin_req_chan")],
-        [InlineKeyboardButton("⚡ FAKE OTP", callback_data="admin_fake_otp")],
+        [InlineKeyboardButton("👥 USER MANAGEMENT", callback_data="adm_user_mgmt")],
+        [InlineKeyboardButton("⚙️ SYSTEM CONFIGURATION", callback_data="adm_sys_conf")],
+        [InlineKeyboardButton("🔗 REQUIRED CHANNELS", callback_data="adm_req_chan")],
+        [InlineKeyboardButton("⚡ FAKE OTP", callback_data="adm_fake_otp")],
         [InlineKeyboardButton("🔙 BACK TO MAIN", callback_data="back_main")]
     ]
-    
-    # এটি চেক করবে কমান্ড হিসেবে আসছে নাকি বাটন হিসেবে
-    if update.message:
-        await update.message.reply_text("👑 প্রধান অ্যাডমিন মেনু:", reply_markup=InlineKeyboardMarkup(keyboard))
-    elif update.callback_query:
+    if update.callback_query:
         await update.callback_query.edit_message_text("👑 প্রধান অ্যাডমিন মেনু:", reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text("👑 প্রধান অ্যাডমিন মেনু:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# --- ইউনিফাইড অ্যাডমিন কলব্যাক ---
+# --- অ্যাডমিন কলব্যাক হ্যান্ডলার ---
 async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
     data = query.data
 
     if data == "back_main":
-        await query.edit_message_text("🔙 প্রধান মেনুতে ফিরে এসেছেন।")
+        await query.edit_message_text("🔙 আপনি মেইন মেনুতে ফিরে এসেছেন।")
+    elif data == "admin_main" or data == "adm_admin":
+        await admin_panel(update, context)
     
-    elif data == "admin_user_mgmt":
+    # ইউজার ম্যানেজমেন্ট সাব-মেনু
+    elif data == "adm_user_mgmt":
         keyboard = [
-            [InlineKeyboardButton("📢 SEND MESSAGE TO ALL", callback_data="bc_all")],
-            [InlineKeyboardButton("🆔 ALL USER ID", callback_data="all_ids"), InlineKeyboardButton("📜 BAN LIST", callback_data="ban_list")],
-            [InlineKeyboardButton("💰 ALL USER BALANCE", callback_data="all_bal"), InlineKeyboardButton("👥 USER LIST (ALL)", callback_data="all_users")],
+            [InlineKeyboardButton("📢 SEND MSG TO ALL", callback_data="bc_all")],
+            [InlineKeyboardButton("🆔 ALL ID", callback_data="all_ids"), InlineKeyboardButton("📜 BAN LIST", callback_data="ban_list")],
+            [InlineKeyboardButton("💰 ALL BAL", callback_data="all_bal"), InlineKeyboardButton("👥 ALL USERS", callback_data="all_users")],
             [InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_main")]
         ]
         await query.edit_message_text("👥 ইউজার ম্যানেজমেন্ট:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-    elif data == "admin_sys_conf":
+    # সিস্টেম কনফিগারেশন সাব-মেনু
+    elif data == "adm_sys_conf":
         keyboard = [
-            [InlineKeyboardButton("📈 TODAY ALL STATUS", callback_data="t_stat"), InlineKeyboardButton("👤 USER STATUS", callback_data="u_stat")],
-            [InlineKeyboardButton("⛔ BAN USER", callback_data="ban_u"), InlineKeyboardButton("🔓 UNBAN USER", callback_data="unban_u")],
-            [InlineKeyboardButton("➖ REMOVE BAL", callback_data="rem_bal"), InlineKeyboardButton("➕ ADD BAL", callback_data="add_bal")],
-            [InlineKeyboardButton("📋 VIEW USER OTP RATE", callback_data="v_otp_r")],
+            [InlineKeyboardButton("📈 STATUS", callback_data="t_stat"), InlineKeyboardButton("👤 CHECK", callback_data="u_stat")],
+            [InlineKeyboardButton("⛔ BAN", callback_data="ban_u"), InlineKeyboardButton("🔓 UNBAN", callback_data="unban_u")],
+            [InlineKeyboardButton("➖ REMOVE", callback_data="rem_bal"), InlineKeyboardButton("➕ ADD", callback_data="add_bal")],
+            [InlineKeyboardButton("💲 OTP PRICE", callback_data="otp_p"), InlineKeyboardButton("📋 VIEW RATE", callback_data="v_otp_r")],
             [InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_main")]
         ]
         await query.edit_message_text("⚙️ সিস্টেম কনফিগারেশন:", reply_markup=InlineKeyboardMarkup(keyboard))
-    
-    elif data == "admin_main":
-        await admin_panel(update, context)
         
 # --- বাটন ফাংশনাল হ্যান্ডলার ---
 async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
