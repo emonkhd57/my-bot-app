@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import logging
 import os
 import json
@@ -29,7 +28,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id == ADMIN_ID: keyboard.append(["👑 অ্যাডমিন প্যানেল"])
     await update.message.reply_text("👋 স্বাগতম! নিচে ক্লিক করুন:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
 
-# --- অ্যাডমিন প্যানেল (এডিট মোড) ---
+# --- অ্যাডমিন প্যানেল ---
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != ADMIN_ID: return
     keyboard = [
@@ -51,11 +50,11 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
 
     if data == "back_main":
-        await query.edit_message_text("🔙 আপনি মেইন মেনুতে ফিরে এসেছেন।")
-    elif data == "admin_main" or data == "adm_admin":
+        await query.edit_message_text("🔙 প্রধান মেনুতে ফিরে এসেছেন।")
+    elif data == "admin_main":
         await admin_panel(update, context)
     
-    # ইউজার ম্যানেজমেন্ট সাব-মেনু
+    # ইউজার ম্যানেজমেন্ট
     elif data == "adm_user_mgmt":
         keyboard = [
             [InlineKeyboardButton("📢 SEND MSG TO ALL", callback_data="bc_all")],
@@ -65,7 +64,7 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.edit_message_text("👥 ইউজার ম্যানেজমেন্ট:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-    # সিস্টেম কনফিগারেশন সাব-মেনু
+    # সিস্টেম কনফিগারেশন
     elif data == "adm_sys_conf":
         keyboard = [
             [InlineKeyboardButton("📈 STATUS", callback_data="t_stat"), InlineKeyboardButton("👤 CHECK", callback_data="u_stat")],
@@ -75,26 +74,27 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 BACK TO ADMIN", callback_data="admin_main")]
         ]
         await query.edit_message_text("⚙️ সিস্টেম কনফিগারেশন:", reply_markup=InlineKeyboardMarkup(keyboard))
-        
+
 # --- বাটন ফাংশনাল হ্যান্ডলার ---
 async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = ("💵 আপনার ব্যালেন্স\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "💵 ব্যালেন্স: 0.00 BDT\n"
-            "💸 পেন্ডিং (উইথড্র): 0.00 BDT\n"
-            "💰 Total Income: 0.00 BDT\n"
-            "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "📞 মোট ওটিপি রিসিভ: 0 টি")
+    user_id = update.effective_user.id
+    user_ref = db.collection('users').document(str(user_id)).get()
+    balance = user_ref.to_dict().get('balance', 0.0) if user_ref.exists else 0.0
+    text = (f"💵 আপনার ব্যালেন্স\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💵 ব্যালেন্স: {balance:.2f} BDT\n"
+            f"💸 পেন্ডিং (উইথড্র): 0.00 BDT\n"
+            f"💰 Total Income: 0.00 BDT\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📞 মোট ওটিপি রিসিভ: 0 টি")
     await update.message.reply_text(text)
 
 async def show_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bot_username = (await context.bot.get_me()).username
     refer_link = f"https://t.me/{bot_username}?start={update.effective_user.id}"
     text = (f"🎁 My Referrals\n\n"
-            f"👤 Total Refer: 1\n"
-            f"😃 Total Refer Income: 0.00 BDT\n"
             f"🔗 আপনার রেফার লিংক:\n{refer_link}\n\n"
-            f"ℹ️ প্রতি রেফারে পাবেন ০.১০ পয়সা বোনাস। আপনার রেফার করা ইউজার যদি দিনে ১০০ otp নেয় তাহলে ১০ টাকা।")
+            f"ℹ️ প্রতি রেফারে পাবেন ০.১০ পয়সা বোনাস।")
     await update.message.reply_text(text)
 
 async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -104,14 +104,12 @@ async def show_support(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text("📞 গ্রাহক সেবা কেন্দ্র:\nসম্মানিত মেম্বার, আপনার যেকোনো সমস্যার জন্য সাপোর্ট টিমের সাথে যোগাযোগ করুন।", reply_markup=InlineKeyboardMarkup(keyboard))
 
-
 # --- ওটিপি ফাংশন ---
 async def get_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     url = f"{BASE_URL}/getnum"
-    payload = {"rid": "26134"}
     headers = {"mauthapi": API_KEY}
-    response = requests.post(url, headers=headers, json=payload).json()
+    response = requests.post(url, headers=headers, json={"rid": "26134"}).json()
     
     if response.get('meta', {}).get('code') == 200:
         number = response['data']['full_number']
@@ -132,8 +130,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
             order = order_ref.get()
             if order.exists:
                 user_id = order.to_dict()['user_id']
-                bonus = db.collection('bot_state').document('1').get().to_dict().get('bonus_per_otp', 0.50)
-                await context.bot.send_message(chat_id=user_id, text=f"🔔 নতুন ওটিপি এসেছে!\n📱 নাম্বার: {number}\n✉️ কোড: {latest_otp['message']}\n💰 বোনাস: {bonus} BDT")
+                await context.bot.send_message(chat_id=user_id, text=f"🔔 নতুন ওটিপি এসেছে!\n📱 নাম্বার: {number}\n✉️ কোড: {latest_otp['message']}")
                 order_ref.update({'status': 'completed'})
     except Exception as e:
         print(f"Error: {e}")
@@ -150,7 +147,6 @@ if __name__ == '__main__':
     threading.Thread(target=run_dummy_server, daemon=True).start()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # এখানে JobQueue সঠিকভাবে সংযুক্ত করা হয়েছে
     if app.job_queue:
         app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
     
