@@ -9,8 +9,8 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import requests
 
-# Render-এর জন্য ব্যাকগ্রাউন্ড ওয়েব সার্ভার (আবশ্যক)
-from aiohttp import web
+# পাইথনের বিল্ট-ইন সার্ভার (কোনো এক্সট্রা মডিউল লাগবে না)
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 
 # --- পাইথন asyncio লুপ ক্র্যাশ পলিসি ফিক্স ---
@@ -226,7 +226,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 config['services'][name] = code.lower()
                 db.collection('settings').document('config').update({'services': config['services']})
                 await update.message.reply_text(f"✅ সার্ভিস যুক্ত হয়েছে: {name} ({code})")
-            except: await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Facebook fb` এভাবে পাঠান।")
+            except: await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Facebook fb`")
         elif action == 'user_info_search':
             tgt_user = db.collection('users').document(text).get()
             if tgt_user.exists:
@@ -338,7 +338,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for s_name in services.keys():
             keyboard.append([InlineKeyboardButton(f"🎯 {s_name}", callback_data=f"sel_s_{services[s_name]}")])
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
-        await query.edit_message_text("🎯 **এবার আপনার কাঙ্ক্ষিত সার্ভিসটি সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text("🎯 **এবার আপনার কাঙ্জ্জিত সার্ভিসটি সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif data.startswith("sel_s_"):
         s_code = data.split("_")[2]
@@ -393,27 +393,23 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "cancel_action":
         await query.message.delete()
 
-# --- Render পোর্টের জন্য ডামি ওয়েব সার্ভার হ্যান্ডলার ---
-async def web_handle(request):
-    return web.Response(text="Bot is running completely live!")
+# --- পাইথনের নিজস্ব বিল্ট-ইন সার্ভার হ্যান্ডলার ---
+class RenderServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is perfectly running live on Render!")
 
-def start_web_server():
+def run_built_in_server():
     port = int(os.environ.get("PORT", 10000))
-    app = web.Application()
-    app.router.add_get('/', web_handle)
-    
-    # আলাদা থ্রেডে লুপ তৈরি করে সার্ভার রান করা
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    runner = web.AppRunner(app)
-    loop.run_until_complete(runner.setup())
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    loop.run_until_complete(site.start())
-    loop.run_forever()
+    server = HTTPServer(('0.0.0.0', port), RenderServer)
+    print(f"Built-in HTTP Server running on port {port}")
+    server.serve_forever()
 
 def main():
-    # ব্যাকগ্রাউন্ড ওয়েব সার্ভার চালু করা (Render-এর জন্য)
-    t = threading.Thread(target=start_web_server, daemon=True)
+    # ব্যাকগ্রাউন্ডে বিল্ট-ইন সার্ভার চালু করা
+    t = threading.Thread(target=run_built_in_server, daemon=True)
     t.start()
 
     try:
@@ -429,7 +425,7 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_inputs))
     
-    print("Bot starting securely with Render compatibility...")
+    print("Bot starting via run_polling...")
     app.run_polling(close_loop=False)
 
 if __name__ == '__main__':
