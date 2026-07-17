@@ -3,6 +3,7 @@ import os
 import json
 import asyncio
 import sys
+import random
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
@@ -27,8 +28,8 @@ else:
 # --- কনফিগারেশন ---
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
-OTP_GROUP_ID = "-1004392024227"
-MAIN_CHANNEL_URL = "https://t.me/your_main_channel"
+OTP_GROUP_ID = "-1003656135640"
+MAIN_CHANNEL_URL = "https://t.me/my1otpp"
 
 # ফায়ারবেস ইনিশিয়ালাইজেশন
 if not firebase_admin._apps:
@@ -54,13 +55,16 @@ def get_bot_settings():
             data['services'] = {}
         if 'countries' not in data:
             data['countries'] = {}
+        if 'fake_otp_enabled' not in data:
+            data['fake_otp_enabled'] = False
         return data
     else:
         default_config = {
             'otp_rate': 2.50,
             'min_withdraw': 110.0,
             'countries': {"Montenegro": "me", "Guinea": "gn"},
-            'services': {"Facebook": "fb", "Telegram": "tg"}
+            'services': {"Facebook": "fb", "Telegram": "tg"},
+            'fake_otp_enabled': False
         }
         db.collection('settings').document('config').set(default_config)
         return default_config
@@ -76,14 +80,17 @@ def get_main_menu(user_id):
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_admin_menu():
+    config = get_bot_settings()
+    fake_status = "ON 🟢" if config.get('fake_otp_enabled', False) else "OFF 🔴"
+    
     keyboard = [
         ["💸 ওটিপি রেট", "⚙️ মিনিমাম উইথড্র"],
         ["👥 All User List", "📨 Withdraw Request"],
         ["⚙️ Add Service", "🗑️ Remove Service"],
         ["⚙️ Add Country", "🗑️ Remove Country"],
         ["🔌 Manage APIs", "👤 User Information"],
-        ["📊 Top 10 OTP (24h)", "📢 ব্রডকাস্ট"],
-        ["🔙 মেইন মেনু"]
+        ["📊 Top 10 OTP (24h)", f"📢 Fake OTP: {fake_status}"],
+        ["📢 ব্রডকাস্ট", "🔙 মেইন মেনু"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -306,6 +313,16 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await update.message.reply_text("🗑️ **কোন দেশটি রিমুভ করতে চান সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
     
+    # --- ফেক ওটিপি টগল বাটন হ্যান্ডলিং ---
+    elif text.startswith("📢 Fake OTP:") and user_id == ADMIN_ID:
+        config = get_bot_settings()
+        current_status = config.get('fake_otp_enabled', False)
+        new_status = not current_status
+        db.collection('settings').document('config').update({'fake_otp_enabled': new_status})
+        
+        status_text = "চালু 🟢" if new_status else "বন্ধ 🔴"
+        await update.message.reply_text(f"📢 ফেক ওটিপি লুপটি সফলভাবে **{status_text}** করা হয়েছে।", reply_markup=get_admin_menu())
+
     # --- এপিআই কন্ট্রোল প্যানেল ট্রিগার ---
     elif text == "🔌 Manage APIs" and user_id == ADMIN_ID:
         providers = db.collection('api_providers').stream()
@@ -434,15 +451,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     data = query.data
     
-    # এপিআই অন/অফ করার লজিক (একটি অ্যাক্টিভ হলে বাকিগুলো অফ হয়ে যাবে)
     if data.startswith("toggle_api_"):
         api_id = data.split("_")[2]
-        # প্রথমে বাকি সবগুলোকে False করে দেওয়া হচ্ছে
         all_apis = db.collection('api_providers').get()
         for a in all_apis:
             db.collection('api_providers').document(a.id).update({'is_active': False})
             
-        # সিলেক্টেড প্রোভাইডারটিকে True করা হলো
         db.collection('api_providers').document(api_id).update({'is_active': True})
         await query.edit_message_text("✅ এপিআই সফলভাবে পরিবর্তিত ও সক্রিয় হয়েছে।")
         
@@ -455,7 +469,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['adm_action'] = 'add_api_step1'
         await query.edit_message_text("✍️ নতুন প্রোভাইডারের একটি **সুন্দর নাম** টাইপ করে পাঠান:\n\n*(যেমন: MnitNetwork)*", reply_markup=get_inline_cancel())
 
-    # সার্ভিস রিমুভ করার লজিক
     elif data.startswith("rem_srv_"):
         s_name = data.split("_")[2]
         config = get_bot_settings()
@@ -465,7 +478,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.collection('settings').document('config').update({'services': services})
             await query.edit_message_text(f"✅ **{s_name}** সার্ভিসটি সফলভাবে রিমুভ করা হয়েছে।")
             
-    # কান্ট্রি রিমুভ করার লজিক
     elif data.startswith("rem_cnt_"):
         c_name = data.split("_")[2]
         config = get_bot_settings()
@@ -504,7 +516,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = query.from_user.id
         await query.edit_message_text("⚡ ব্যাকগ্রাউন্ডে আপনার নাম্বার খোঁজা হচ্ছে...")
         
-        # অ্যাক্টিভ এপিআই চেক
         active_api = get_active_provider()
         if not active_api:
             await query.edit_message_text("❌ বর্তমানে কোনো অ্যাক্টিভ এপিআই প্রোভাইডার সেট করা নেই। অ্যাডমিনের সাথে যোগাযোগ করুন।", reply_markup=get_inline_cancel())
@@ -583,9 +594,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             await query.message.reply_text(cancel_text, parse_mode="Markdown")
 
-# --- ওটিপি চেকার ব্যাকগ্রাউন্ড ফাংশন ---
+# --- রিয়েল ওটিপি চেকার ব্যাকগ্রাউন্ড টাস্ক ---
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
-    # অ্যাক্টিভ এপিআই নিয়ে আসা হচ্ছে
     active_api = get_active_provider()
     if not active_api:
         return
@@ -644,6 +654,70 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
+# --- ফেক ওটিপি লুপ ব্যাকগ্রাউন্ড টাস্ক ---
+async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
+    config = get_bot_settings()
+    # যদি ফেক ওটিপি অন থাকে তবেই চলবে
+    if not config.get('fake_otp_enabled', False):
+        return
+
+    # র্যান্ডম ডেটা জেনারেট করার জন্য লিস্ট
+    fake_names = [
+        "Sabbir", "Rahat", "Emon", "Tanvir", "Noyon", "Alamin", "Sujon", "Mim", "Riya", "Nipa", 
+        "Hasan", "Arif", "Shakil", "Kamrul", "Sajid", "Rifat", "Sumon", "Rasel", "Fahim", "Naim"
+    ]
+    
+    # বোটে সেট করা রিয়েল সার্ভিস ও দেশের তালিকা থেকেই র্যান্ডমলি বেছে নেবে
+    services_list = list(config.get('services', {"Facebook": "fb", "Telegram": "tg"}).keys())
+    countries_list = list(config.get('countries', {"Ivory Coast": "225079", "Afghanistan": "9374404"}).keys())
+    
+    # ফলব্যাক প্রোটেকশন
+    if not services_list: services_list = ["Facebook", "Telegram", "WhatsApp", "IMO"]
+    if not countries_list: countries_list = ["Ivory Coast", "Afghanistan", "Guinea", "Montenegro"]
+
+    # র্যান্ডম ডেটা সিলেকশন
+    rand_name = random.choice(fake_names)
+    rand_service = random.choice(services_list)
+    rand_country = random.choice(countries_list)
+    rand_balance = round(random.uniform(10.50, 450.00), 2)
+    
+    # বিভিন্ন ফরম্যাটের ওটিপি কোড জেনারেশন (৪ থেকে ৬ ডিজিট)
+    otp_formats = [
+        str(random.randint(1000, 9999)),
+        str(random.randint(10000, 99999)),
+        str(random.randint(100000, 999999)),
+        f"G-{random.randint(100000, 999999)}"
+    ]
+    rand_otp = random.choice(otp_formats)
+
+    # আসল ওটিপির হুবহু ফরম্যাট (কোনো ডেটাবেজ আপডেট হবে না)
+    fake_msg = (
+        f"**Now Otp**\n"
+        f"📢 `Number 1 ❞` \n\n"
+        f"🔸 {rand_country} | {rand_service}\n\n"
+        f"👤 **User:** {rand_name}\n"
+        f"💰 **Balance:** {rand_balance:.2f} BDT\n"
+        f"✉️ **OTP Code:** `{rand_otp}`\n"
+        f"──────────────────────\n"
+        f"🎁 *প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন!* 🚀"
+    )
+
+    group_buttons = [
+        [InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{(await context.bot.get_me()).username}")],
+        [InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]
+    ]
+
+    try:
+        # শুধুমাত্র গ্রুপ চ্যাটে মেসেজ পাঠানো হচ্ছে
+        await context.bot.send_message(
+            chat_id=OTP_GROUP_ID, 
+            text=fake_msg, 
+            parse_mode="Markdown", 
+            reply_markup=InlineKeyboardMarkup(group_buttons)
+        )
+    except Exception as e:
+        pass
+
 # --- সার্ভার রানিং লাইভ পলিসি হ্যান্ডলার ---
 class RenderServer(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -668,7 +742,12 @@ def main():
         asyncio.set_event_loop(loop)
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
+    
+    # রিয়েল ওটিপি চেকার (১০ সেকেন্ড পরপর চলে)
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
+    
+    # ফেক ওটিপি জেনারেটর (১০ সেকেন্ড পরপর গ্রুপে মেসেজ পাঠাবে)
+    app.job_queue.run_repeating(fake_otp_generator, interval=10, first=10)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callback_handler))
