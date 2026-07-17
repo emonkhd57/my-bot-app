@@ -29,6 +29,17 @@ else:
     except ImportError:
         pass
 
+# --- পতাকা ইমোজি ম্যাপিং ---
+COUNTRY_FLAGS = {
+    "Tanzania": "🇹🇿", "Ivory Coast": "🇨🇮", "Montenegro": "🇲🇪", 
+    "Guinea": "🇬🇳", "Sierra leone": "🇸🇱", "Nigeria": "🇳🇬"
+}
+
+def get_country_with_flag(name):
+    # নামের শুরুতে পতাকা সেট করা
+    flag = next((f for k, f in COUNTRY_FLAGS.items() if k.lower() in name.lower()), "🌍")
+    return f"{flag} {name}"
+
 # --- কনফিগারেশন ---
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
@@ -189,16 +200,18 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             try:
                 parts = text.strip().split()
                 if len(parts) >= 2:
-                    c_code = parts[-1]  
-                    c_name = " ".join(parts[:-1]) 
+                    c_code = parts[-1]
+                    c_name = " ".join(parts[:-1])
+                    # ফ্ল্যাগসহ ফরম্যাট করা নাম
+                    formatted_name = get_country_with_flag(c_name)
                     config = get_bot_settings()
                     countries_dict = config.get('countries', {})
-                    countries_dict[c_name] = c_code.lower()
+                    countries_dict[formatted_name] = c_code.lower()
                     db.collection('settings').document('config').update({'countries': countries_dict})
-                    await update.message.reply_text(f"✅ দেশ সফলভাবে যুক্ত হয়েছে: {c_name} (Code: {c_code})")
+                    await update.message.reply_text(f"✅ দেশ সফলভাবে যুক্ত হয়েছে: {formatted_name}")
                 else:
                     await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Ivory Coast 225079`")
-            except: await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে।")
+            except: await update.message.reply_text("❌ ত্রুটি হয়েছে।")
         
         elif action == 'xl_srv_input':
             config = get_bot_settings()
