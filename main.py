@@ -43,7 +43,13 @@ db = firestore.client()
 def get_bot_settings():
     settings_ref = db.collection('settings').document('config').get()
     if settings_ref.exists:
-        return settings_ref.to_dict()
+        data = settings_ref.to_dict()
+        # সেফটি ফিক্স: যদি ফিল্ডগুলো ডেটাবেজে একদমই না থাকে তবে ফাঁকা ডিকশনারি সেট হবে
+        if 'services' not in data:
+            data['services'] = {}
+        if 'countries' not in data:
+            data['countries'] = {}
+        return data
     else:
         default_config = {
             'otp_rate': 2.50,
@@ -130,16 +136,24 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 service_name = text.strip()
                 service_code = service_name.lower()[:2]
                 config = get_bot_settings()
-                config['services'][service_name] = service_code
-                db.collection('settings').document('config').update({'services': config['services']})
+                
+                # ফিক্স: ডেটাবেজে অবজেক্ট মিসিং থাকলে ট্র্যাকিং সেভ করা
+                services_dict = config.get('services', {})
+                services_dict[service_name] = service_code
+                
+                db.collection('settings').document('config').update({'services': services_dict})
                 await update.message.reply_text(f"✅ সার্ভিস সফলভাবে যুক্ত হয়েছে: **{service_name}**")
-            except: await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে।")
+            except Exception as e: 
+                await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।")
         elif action == 'add_country_input':
             try:
                 c_name, c_code = text.split(None, 1)
                 config = get_bot_settings()
-                config['countries'][c_name] = c_code.lower()
-                db.collection('settings').document('config').update({'countries': config['countries']})
+                
+                countries_dict = config.get('countries', {})
+                countries_dict[c_name] = c_code.lower()
+                
+                db.collection('settings').document('config').update({'countries': countries_dict})
                 await update.message.reply_text(f"✅ দেশ সফলভাবে যুক্ত হয়েছে: {c_name} ({c_code})")
             except: 
                 await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Montenegro me`")
@@ -239,18 +253,14 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await update.message.reply_text("⚙️ **কোন সার্ভিসের জন্য কান্ট্রি এড করতে চান তা সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
     elif text == "📊 Top 10 OTP (24h)" and user_id == ADMIN_ID:
-        yesterday = datetime.utcnow() - timedelta(hours=24)
         orders = db.collection('orders').where('status', '==', 'completed').stream()
-        
         user_counts = {}
         for o in orders:
             od = o.to_dict()
-            # আমরা ফায়ারবেস অর্ডার ডকুমেন্টে টাইমস্ট্যাম্প সেভ না করলে আইডি ফিল্টার বা ফুল ২৪ ঘণ্টার হিসেব চেক করার লজিক
             uid = od.get('user_id')
             user_counts[uid] = user_counts.get(uid, 0) + 1
             
         sorted_users = sorted(user_counts.items(), key=lambda item: item[1], reverse=True)[:10]
-        
         if not sorted_users:
             await update.message.reply_text("📊 গত ২৪ ঘণ্টায় কোনো সফল ওটিপি ট্রানজেকশন হয়নি।")
             return
@@ -330,7 +340,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         await update.message.reply_text(refer_text, parse_mode="Markdown")
     elif text == "🧐 Support":
-        # হুবহু স্ক্রিনশট ৩ এর কাস্টম ডিজাইন
         support_card = (
             "📞 **গ্রাহক সেবা কেন্দ্র**\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
