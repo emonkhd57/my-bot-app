@@ -30,7 +30,7 @@ else:
     except ImportError:
         pass
 
-# --- গ্লোবাল প্রিমিয়াম পতাকা ডিকশনারি (কোনো পৃথিবীর ইমোজি থাকবে না) ---
+# --- গ্লোবাল প্রিমিয়াম পতাকা ডিকশনারি ---
 COUNTRY_FLAGS = {
     "tanzania": "🇹🇿", "ivory coast": "🇨🇮", "montenegro": "🇲🇪", 
     "guinea": "🇬🇳", "sierra leone": "🇸🇱", "nigeria": "🇳🇬",
@@ -71,10 +71,9 @@ def get_service_emoji(service_name):
     elif "twitter" in srv or "x" in srv: return "🐦"
     else: return "🎯"
 
-def get_active_provider():
-    providers = db.collection('api_providers').where('is_active', '==', True).limit(1).get()
-    if providers: return providers[0].to_dict()
-    return None
+def get_active_providers():
+    providers = db.collection('api_providers').where('is_active', '==', True).get()
+    return [p.to_dict() for p in providers]
 
 def get_bot_settings():
     settings_ref = db.collection('settings').document('config').get()
@@ -117,7 +116,6 @@ def get_admin_menu():
 def get_inline_cancel():
     return InlineKeyboardMarkup([[InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")]])
 
-# টেলিগ্রাম এস্কেপ ক্যারেক্টার ফরম্যাটার (MarkdownV2 এর জন্য)
 def escape_markdown_v2(text):
     escape_chars = r'_*[]()~`>#+-=|{}.!'
     return ''.join('\\' + c if c in escape_chars else c for c in text)
@@ -148,7 +146,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম।\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
     await update.message.reply_text(text, reply_markup=get_main_menu(user_id))
 
-# --- ৩. অল ইউজার লিস্ট ও ইউজার ইনফরমেশন সার্চ প্লাস ব্যালেন্স প্যাক প্রসেসর ---
 async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
@@ -187,7 +184,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     config = get_bot_settings()
                     countries_dict = config.get('countries', {})
                     
-                    # সার্ভিস অনুযায়ী নেস্টেড ডাটা ম্যাপিং স্ট্রাকচার
                     if srv_target not in countries_dict:
                         countries_dict[srv_target] = {}
                         
@@ -251,7 +247,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             search_query = text.strip().replace("@", "")
             tgt_user = None
             
-            # ইউজার আইডি অথবা ইউজারনেম দিয়ে ফ্লেক্সিবল সার্চ কোয়েরি
             if search_query.isdigit():
                 doc = db.collection('users').document(search_query).get()
                 if doc.exists: tgt_user = doc
@@ -268,7 +263,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ud = tgt_user.to_dict()
                 context.user_data['managed_user_id'] = str(ud['id'])
                 ref_count = len(ud.get('referrals', []))
-                ref_income = ref_count * 0.10
                 kbd = [
                     [InlineKeyboardButton("➕ ব্যালেন্স অ্যাড", callback_data="u_action_addbal"), InlineKeyboardButton("➖ ব্যালেন্স কাট", callback_data="u_action_cutbal")],
                     [InlineKeyboardButton("🚫 ব্যান করুন", callback_data="u_action_ban"), InlineKeyboardButton("🔓 আনব্যান করুন", callback_data="u_action_unban")],
@@ -313,7 +307,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data['adm_action'] = None
         return
 
-    # --- ৪. ইউজার প্যানেল উইথড্র টেক্সট নাম্বার এবং অ্যামাউন্ট ইনপুট প্রোসেসিং ফিক্স ---
     user_action = context.user_data.get('usr_action')
     if user_action == 'w_num_input':
         num_pattern = r'^(?:\+88|88)?(01[3-9]\d{8})$'
@@ -335,7 +328,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             ud = user_ref.get().to_dict()
             
             if amount < min_w:
-                await update.message.reply_text(f"❌ মিনিমাম উইথড্র অ্যামাউন্ট হচ্ছে {min_w} BDT।")
+                await update.message.reply_text(f"❌ আপনার পর্যাপ্ত ব্যালেন্স নেই। মিনিমাম উইথড্র লিমিট: {min_w} BDT")
             elif amount > ud['balance']:
                 await update.message.reply_text("❌ আপনার একাউন্টে পর্যাপ্ত ব্যালেন্স নেই।")
             else:
@@ -373,7 +366,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await update.message.reply_text("🗑️ **কোন সার্ভিসটি রিমুভ করতে চান সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
         
-    # --- ২. অ্যাড কান্ট্রি সিলেকশন সার্ভিস ফ্লো মডিফিকেশন ---
     elif text == "⚙️ Add Country" and user_id == ADMIN_ID:
         config = get_bot_settings()
         services = config.get('services', {})
@@ -393,7 +385,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard = []
         for srv, c_dict in countries.items():
             for c_name in c_dict.keys():
-                keyboard.append([InlineKeyboardButton(f"🗑️ {srv} - {c_name}", callback_data=f"rem_cnt_{srv}_{c_name}")])
+                keyboard.append([InlineKeyboardButton(f"🗑️ {srv} - {c_name}", callback_data=f"rem_cnt_{srv}_{c_name.replace(' ', '__')}")])
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await update.message.reply_text("🗑️ **কোন দেশটি রিমুভ করতে চান সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
     
@@ -430,7 +422,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         xl_text = (
             f"📊 **Excel Numbers Control Panel**\n━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🟢 বিক্রয়ের জন্য রেডি নাম্বার: {available_count} টি\n"
-            f"⏳ ওটিপির জন্য ওয়েটিং নাম্বার: {active_count} টি\n\n"
+            f"⏳ ওটিপির জন্য ওয়েटिंग নাম্বার: {active_count} টি\n\n"
         )
         kbd = [
             [InlineKeyboardButton("📤 Upload Excel File", callback_data="xl_upload_init")],
@@ -457,7 +449,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             board_text += f"{idx}. 👤 {u_name} | ID: `{uid}` ➔ **{count} টি OTP**\n"
         await update.message.reply_text(board_text, parse_mode="Markdown")
 
-    # --- ৩. অল ইউজার লিস্ট এ নাম ও টেলিগ্রাম ইউজারনেম শো ফিক্স ---
     elif text == "👥 All User List" and user_id == ADMIN_ID:
         users = db.collection('users').get()
         if not users:
@@ -511,10 +502,15 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user_data = db.collection('users').document(str(user_id)).get().to_dict() or {}
         balance = user_data.get('balance', 0.0)
         total_otp = user_data.get('total_otp', 0)
-        text = (f"💲 আপনার ব্যালেন্স\n━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🔥 ব্যালেন্স: {balance:.2f} BDT\n"
-                f"✅ মোট ওটিপি রিসিভ: {total_otp} টি")
-        await update.message.reply_text(text)
+        
+        # আপনার ছবির হুবহু ডেকোরেশন ও আন্ডারলাইন মেসেজ লেআউট
+        text_msg = (
+            f"💰 **আপনার ব্যালেন্স**\n"
+            f"──────────────────────\n"
+            f"🔥 **ব্যালেন্স:** {balance:.2f} BDT\n"
+            f"✅ **মোট ওটিপি রিসিভ:** {total_otp} টি"
+        )
+        await update.message.reply_text(text_msg, parse_mode="Markdown")
         
     elif text == "💰 Withdraw":
         user_id = update.effective_user.id
@@ -560,7 +556,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ]
         await update.message.reply_text(support_card, reply_markup=InlineKeyboardMarkup(support_kbd), parse_mode="Markdown")
 
-# --- এক্সেল ফাইল আপলোড হ্যান্ডলার ---
 async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     action = context.user_data.get('adm_action')
@@ -615,12 +610,13 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
-    await query.answer()
 
     if data == "xl_upload_init":
+        await query.answer()
         context.user_data['adm_action'] = 'xl_srv_input'
         await query.edit_message_text("📝 প্রথমে যে সার্ভিসের জন্য নাম্বার আপলোড করতে চান তার নাম লিখুন (যেমন: `Facebook`):", reply_markup=get_inline_cancel())
     elif data == "xl_clear_db":
+        await query.answer()
         docs = db.collection('excel_numbers').get()
         deleted = 0
         for doc in docs:
@@ -628,33 +624,43 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             deleted += 1
         await query.edit_message_text(f"🗑️ এক্সেল ডাটাবেজ থেকে মোট **{deleted}** টি নাম্বার সফলভাবে রিমুভ করা হয়েছে।")
     elif data.startswith("toggle_api_"):
+        await query.answer()
         api_id = data.split("_")[2]
-        all_apis = db.collection('api_providers').get()
-        for a in all_apis: db.collection('api_providers').document(a.id).update({'is_active': False})
-        db.collection('api_providers').document(api_id).update({'is_active': True})
-        await query.edit_message_text("✅ এপিআই সফলভাবে পরিবর্তিত ও সক্রিয় হয়েছে।")
+        api_ref = db.collection('api_providers').document(api_id)
+        api_doc = api_ref.get()
+        if api_doc.exists:
+            current_status = api_doc.to_dict().get('is_active', False)
+            api_ref.update({'is_active': not current_status})
+        await query.edit_message_text("✅ এপিআই প্রোভাইডারের সক্রিয়তা স্ট্যাটাস পরিবর্তিত হয়েছে।")
     elif data.startswith("del_api_"):
+        await query.answer()
         api_id = data.split("_")[2]
         db.collection('api_providers').document(api_id).delete()
         await query.edit_message_text("🗑️ এপিআই প্রোভাইডার সফলভাবে রিমুভ করা হয়েছে।")
     elif data == "add_new_api":
+        await query.answer()
         context.user_data['adm_action'] = 'add_api_step1'
         await query.edit_message_text("✍️ নতুন প্রোভাইডারের একটি **সুন্দর নাম** টাইপ করে পাঠান:", reply_markup=get_inline_cancel())
     elif data.startswith("rem_srv_"):
+        await query.answer()
         s_name = data.split("_")[2]
         config = get_bot_settings()
         services = config.get('services', {})
         if s_name in services:
             del services[s_name]
             db.collection('settings').document('config').update({'services': services})
-            await query.edit_message_text(f"✅ **{s_name}** সার্ভিসটি সফলভাবে রিমুভ করা হয়েছে।")
+            await query.edit_message_text(f"✅ **{s_name}** сервисটি সফলভাবে রিমুভ করা হয়েছে।")
     elif data.startswith("add_c_srv_"):
+        await query.answer()
         srv_name = data.split("_")[3]
         context.user_data['target_add_country_service'] = srv_name
         context.user_data['adm_action'] = 'add_country_input'
         await query.edit_message_text(f"✍️ **{srv_name}** সার্ভিসের জন্য দেশের নাম ও প্রোভাইডার রেঞ্জ কোড স্পেস দিয়ে পাঠান।\n\n✍️ উদাহরণ: `Ivory Coast 225079`", reply_markup=get_inline_cancel())
     elif data.startswith("rem_cnt_"):
-        _, _, srv_name, c_name = data.split("_")
+        await query.answer()
+        parts = data.split("_")
+        srv_name = parts[2]
+        c_name = parts[3].replace("__", " ")
         config = get_bot_settings()
         countries = config.get('countries', {})
         if srv_name in countries and c_name in countries[srv_name]:
@@ -662,22 +668,23 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.collection('settings').document('config').update({'countries': countries})
             await query.edit_message_text(f"✅ **{srv_name}** সার্ভিস থেকে **{c_name}** দেশটি রিমুভ করা হয়েছে।")
     elif data.startswith("usr_s_"):
+        await query.answer()
         s_code = data.split("_")[2]
         context.user_data['selected_service_code'] = s_code
         config = get_bot_settings()
         countries = config.get('countries', {})
         s_name = next((k for k, v in config['services'].items() if v == s_code), "Service")
         
-        # বাম সাইডে দেশের প্রিমিয়াম পতাকা শো করার ডাইনামিক রেন্ডারিং লজিক
         srv_countries = countries.get(s_name, {})
         keyboard = []
         for c_name, c_data in srv_countries.items():
-            keyboard.append([InlineKeyboardButton(f"{c_data['flag']} {c_name}", callback_data=f"usr_c_{c_data['code']}_{c_name}")])
+            keyboard.append([InlineKeyboardButton(f"{c_data['flag']} {c_name}", callback_data=f"usr_c_{c_data['code']}_{c_name.replace(' ', '__')}")])
             
         keyboard.append([InlineKeyboardButton("⬅️ সার্ভিস তালিকায় ফিরে যান", callback_data="back_to_services")])
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await query.edit_message_text(f"🌍 **{s_name}-এর জন্য দেশ সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
     elif data == "back_to_services":
+        await query.answer()
         config = get_bot_settings()
         services = config.get('services', {})
         otp_rate = config.get('otp_rate', 0.70)
@@ -685,11 +692,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await query.edit_message_text("⚡ **একটি সার্ভিস সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
         
-    # --- ১. ওটিপি প্যানেল ডিজাইন মডিফিকেশন (হুবহু স্ক্রিনশটের মতো ৩টি বাটন ও ব্ল্যাংক থিম) ---
     elif data.startswith("usr_c_") or data.startswith("change_num_"):
+        await query.answer()
         parts = data.split("_")
         c_code = parts[2]
-        c_name = parts[3] if len(parts) > 3 else "Country"
+        c_name = parts[3].replace("__", " ") if len(parts) > 3 else "Country"
         s_code = context.user_data.get('selected_service_code')
         user_id = query.from_user.id
         await query.edit_message_text("⚡ ব্যাকগ্রাউন্ডে আপনার নাম্বার খোঁজা হচ্ছে...")
@@ -700,6 +707,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         number = None
         source_type = 'excel'
+        provider_id_used = 'excel'
         
         xl_num_query = db.collection('excel_numbers').where('service_code', '==', s_code).where('country_code', '==', c_code).where('status', '==', 'available').limit(1).get()
         
@@ -708,37 +716,37 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             number = xl_doc.id
             db.collection('excel_numbers').document(number).update({'status': 'active', 'user_id': user_id})
         else:
-            active_api = get_active_provider()
-            if active_api:
+            active_apis = get_active_providers()
+            for active_api in active_apis:
                 try:
-                    api_res = requests.post(f"{active_api['base_url']}/getnum", headers={"mauthapi": active_api['api_key']}, json={"rid": c_code}).json()
+                    api_res = requests.post(f"{active_api['base_url']}/getnum", headers={"mauthapi": active_api['api_key']}, json={"rid": c_code}, timeout=5).json()
                     if api_res.get('meta', {}).get('code') == 200:
                         number = api_res['data']['full_number']
                         source_type = 'api'
-                except: pass
+                        provider_id_used = active_api['id']
+                        break
+                except: continue
                 
         if number:
             db.collection('orders').document(str(number)).set({
-                'user_id': user_id, 'status': 'active', 'country_name': c_name, 'service_name': s_name, 'source': source_type, 'timestamp': datetime.utcnow()
+                'user_id': user_id, 'status': 'active', 'country_name': c_name, 'service_name': s_name, 'source': source_type, 'provider_id': provider_id_used, 'timestamp': datetime.utcnow()
             })
             
-            # স্ক্রিনশটের মতো ক্লিন ফরম্যাটিং ও মার্কডাউন ডাবল ব্যাকস্ল্যাশ হ্যান্ডলিং 
             escaped_flag = escape_markdown_v2(premium_flag)
             escaped_country = escape_markdown_v2(c_name)
-            escaped_num = escape_markdown_v2(str(number))
             
             num_box = (
                 f"{escaped_flag} *{escaped_country} Allocated* ✅\n\n"
                 f"🔄 *Waiting for OTP\\.\\.\\.\\.\\.\\.\\.\\.*"
             )
             
-            # ছবিতে যেভাবে ৩টি লাইনে ব্যাকগ্রাউন্ড ছাড়া শুধু নাম্বার বাটন দেওয়া আছে ঠিক সেভাবে ডিজাইন
+            # ছবিতে যেভাবে ৩টি লাইনে র-নাম্বার বাটন দেওয়া আছে (কোনো বাড়তি ফ্রন্ট ইমোজি ছাড়া)
             action_buttons = [
-                [InlineKeyboardButton(f"📋 {number}", callback_data=f"copy_num_{number}")],
-                [InlineKeyboardButton(f"📋 {number}", callback_data=f"copy_num_{number}")],
-                [InlineKeyboardButton(f"📋 {number}", callback_data=f"copy_num_{number}")],
+                [InlineKeyboardButton(f"{number}", callback_data=f"copy_num_{number}")],
+                [InlineKeyboardButton(f"{number}", callback_data=f"copy_num_{number}")],
+                [InlineKeyboardButton(f"{number}", callback_data=f"copy_num_{number}")],
                 [InlineKeyboardButton(" Telegram ওটিপি গ্রুপ ↗️", url=OTP_GROUP_URL), 
-                 InlineKeyboardButton("🔄 নাম্বার পরিবর্তন করুন ♻️", callback_data=f"change_num_{c_code}_{c_name}")],
+                 InlineKeyboardButton("🔄 নাম্বার পরিবর্তন করুন ♻️", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")],
                 [InlineKeyboardButton("🚫 বাতিল করুন", callback_data="cancel_action")]
             ]
             await query.edit_message_text(num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="MarkdownV2")
@@ -747,15 +755,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     elif data.startswith("copy_num_"):
         num = data.split("_")[2]
-        await query.answer(f"📋 নাম্বার কপি করা হয়েছে: {num}", show_alert=True)
+        # ইউজারের স্ক্রিনে প্রম্পট বাটন ক্লিক করলেই সাকসেসফুলি টেলিগ্রাম এলার্ট ফ্ল্যাশ হবে
+        await query.answer(text=f"{num}", show_alert=True)
         
     elif data.startswith("w_method_"):
+        await query.answer()
         context.user_data['w_method'] = data.split("_")[2]
         context.user_data['usr_action'] = 'w_num_input'
         await query.edit_message_text(f"✍️ আপনার {data.split('_')[2].upper()} নাম্বারটি টাইপ করে পাঠান:", reply_markup=get_inline_cancel())
         
-    # --- ৪. এডমিন প্যানেল থেকে উইথড্র রিজেক্ট ও সাকসেসফুল মেসেজ প্রসেসিং ---
     elif data.startswith("app_w_"):
+        await query.answer()
         w_id = data.split("_")[2]
         w_ref = db.collection('withdraws').document(w_id)
         wd_data = w_ref.get().to_dict()
@@ -763,7 +773,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         w_ref.update({'status': 'approved'})
         await query.edit_message_text("✅ উইথড্র রিকোয়েস্ট সফলভাবে অ্যাপ্রুভ করা হয়েছে।")
         
-        # ৫ থেকে ৭ ঘন্টার প্রিমিয়াম ইমোজি ডেকোরেটেড মেসেজ
         success_text = (
             f"🎉 **আপনার উইথড্র রিকোয়েস্টটি সফলভাবে সম্পন্ন হয়েছে!** 🎉\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
@@ -777,12 +786,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         
     elif data.startswith("rej_w_"):
+        await query.answer()
         w_id = data.split("_")[2]
         w_ref = db.collection('withdraws').document(w_id)
         wd_data = w_ref.get().to_dict()
         
         w_ref.update({'status': 'rejected'})
-        # রিজেক্ট হলে স্বয়ংক্রিয়ভাবে ব্যালেন্স ফেরত দেওয়া হবে (ব্যালেন্স প্যাক রুলস)
         user_ref = db.collection('users').document(str(wd_data['user_id']))
         current_bal = user_ref.get().to_dict().get('balance', 0.0)
         user_ref.update({'balance': current_bal + wd_data['amount']})
@@ -792,6 +801,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         
     elif data.startswith("u_action_"):
+        await query.answer()
         act = data.split("_")[2]
         if act == 'addbal':
             context.user_data['adm_action'] = 'add_bal_amount'
@@ -806,79 +816,85 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.collection('users').document(context.user_data.get('managed_user_id')).update({'is_banned': False})
             await query.edit_message_text("✅ ইউজারকে সফলভাবে আনব্যান করা হয়েছে।")
     elif data == "cancel_action":
+        await query.answer()
         context.user_data['adm_action'] = None
         context.user_data['usr_action'] = None
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
-# --- ৫. ওটিপি চেকার ব্যাকগ্রাউন্ড টাস্ক (একাধিক একটিভ প্যানেল ডিটেকশন ও মাল্টি-রাউটিং মেকানিজম) ---
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
-    active_api = get_active_provider()
-    if not active_api: return
-    url = f"{active_api['base_url']}/success-otp"
-    try:
-        data = requests.get(url, headers={"mauthapi": active_api['api_key']}).json()
-        if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
-            config = get_bot_settings()
-            otp_rate = config.get('otp_rate', 0.70)
-            bot_username = (await context.bot.get_me()).username
-            
-            for latest_otp in data['data']['otps']:
-                number = str(latest_otp['number'])
-                if not number.startswith("+"): number = "+" + number
-                    
-                order_ref = db.collection('orders').document(number)
-                order = order_ref.get()
+    active_apis = get_active_providers()
+    if not active_apis: return
+    
+    # মাল্টিপল সক্রিয় এপিআই মেকানিজম রাউটিং ও ওটিপি ডিটেক্টর ফরওয়ার্ডিং পলিসি
+    for active_api in active_apis:
+        url = f"{active_api['base_url']}/success-otp"
+        try:
+            data = requests.get(url, headers={"mauthapi": active_api['api_key']}, timeout=5).json()
+            if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
+                config = get_bot_settings()
+                otp_rate = config.get('otp_rate', 0.70)
+                bot_username = (await context.bot.get_me()).username
                 
-                # এখানে ব্যাকগ্রাউন্ড কোড ওটিপি ম্যাচিং লজিক এক সাথে একাধিক প্যানেল বা নাম্বার ডিটেক্ট করতে পারে
-                if order.exists and order.to_dict().get('status') == 'active':
-                    order_data = order.to_dict()
-                    user_id = order_data['user_id']
-                    service_name = order_data.get('service_name', 'Facebook')
-                    country_name = order_data.get('country_name', 'Ivory Coast')
-                    otp_code = str(latest_otp['message'])
+                for latest_otp in data['data']['otps']:
+                    number = str(latest_otp['number'])
+                    if not number.startswith("+"): number = "+" + number
+                        
+                    order_ref = db.collection('orders').document(number)
+                    order = order_ref.get()
                     
-                    user_ref = db.collection('users').document(str(user_id))
-                    user_data = user_ref.get().to_dict() or {}
-                    
-                    cur_bal = user_data.get('balance', 0.0) + otp_rate
-                    user_ref.update({'balance': cur_bal, 'total_otp': user_data.get('total_otp', 0) + 1})
-                    
-                    referrer_id = user_data.get('referred_by')
-                    if referrer_id:
-                        ref_user_ref = db.collection('users').document(str(referrer_id))
-                        if ref_user_ref.get().exists:
-                            ref_user_ref.update({'balance': ref_user_ref.get().to_dict().get('balance', 0.0) + 0.10})
+                    if order.exists and order.to_dict().get('status') == 'active':
+                        order_data = order.to_dict()
+                        
+                        # শুধুমাত্র নির্দিষ্ট নাম্বার জেনারেট করা এপিআই প্রোভাইডার চেক ফিল্টারিং
+                        if order_data.get('source') == 'api' and order_data.get('provider_id') != active_api['id']:
+                            continue
+                            
+                        user_id = order_data['user_id']
+                        service_name = order_data.get('service_name', 'Facebook')
+                        country_name = order_data.get('country_name', 'Ivory Coast')
+                        otp_code = str(latest_otp['message'])
+                        
+                        user_ref = db.collection('users').document(str(user_id))
+                        user_data = user_ref.get().to_dict() or {}
+                        
+                        cur_bal = user_data.get('balance', 0.0) + otp_rate
+                        user_ref.update({'balance': cur_bal, 'total_otp': user_data.get('total_otp', 0) + 1})
+                        
+                        referrer_id = user_data.get('referred_by')
+                        if referrer_id:
+                            ref_user_ref = db.collection('users').document(str(referrer_id))
+                            if ref_user_ref.get().exists:
+                                ref_user_ref.update({'balance': ref_user_ref.get().to_dict().get('balance', 0.0) + 0.10})
 
-                    masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
-                    balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
-                    add_part = f"+{otp_rate:.2f} BDT"
-                    space_count = max(1, 45 - (len(balance_part) + len(add_part)))
-                    spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
+                        masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
+                        balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
+                        add_part = f"+{otp_rate:.2f} BDT"
+                        space_count = max(1, 45 - (len(balance_part) + len(add_part)))
+                        spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
 
-                    success_msg = (
-                        f"✨ **Now OTP**\n"
-                        f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                        f"📱 Number: {masked_number}\n"
-                        f"🌍 Country: {country_name}\n"
-                        f"🎯 Service: {service_name}\n"
-                        f"👤 User: {user_data.get('name', 'User')}\n"
-                        f"{spaced_line}\n\n"
-                        f" Otp Code : `{otp_code}`\n\n"
-                        f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                        f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
-                    )
-                    
-                    group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
-                    
-                    await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
-                    await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
-                    
-                    order_ref.update({'status': 'completed'})
-                    if order_data.get('source') == 'excel':
-                        db.collection('excel_numbers').document(number).update({'status': 'used'})
-    except: pass
+                        success_msg = (
+                            f"✨ **Now OTP**\n"
+                            f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
+                            f"📱 Number: {masked_number}\n"
+                            f"🌍 Country: {country_name}\n"
+                            f"🎯 Service: {service_name}\n"
+                            f"👤 User: {user_data.get('name', 'User')}\n"
+                            f"{spaced_line}\n\n"
+                            f" Otp Code : `{otp_code}`\n\n"
+                            f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
+                            f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
+                        )
+                        
+                        group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
+                        
+                        await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
+                        await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
+                        
+                        order_ref.update({'status': 'completed'})
+                        if order_data.get('source') == 'excel':
+                            db.collection('excel_numbers').document(number).update({'status': 'used'})
+        except: pass
 
-# --- ফেক ওটিপি লুপ ব্যাকগ্রাউন্ড টাস্ক ---
 async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     config = get_bot_settings()
     if not config.get('fake_otp_enabled', False): return
@@ -886,7 +902,6 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     fake_names = ["Sabbir", "Rahat", "Emon", "Tanvir", "Noyon", "Alamin", "Sujon", "Mim", "Riya"]
     services_list = list(config.get('services', {"Facebook": "fb"}).keys())
     
-    # নেস্টেড কান্ট্রি স্ট্রাকচার সেফগার্ড রিডিং
     countries_dict = config.get('countries', {})
     countries_list = []
     for srv, c_dict in countries_dict.items():
@@ -927,7 +942,6 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     try: await context.bot.send_message(chat_id=OTP_GROUP_ID, text=fake_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
     except: pass
 
-# --- সার্ভার রানিং লাইভ পলিসি হ্যান্ডলার ---
 class RenderServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
