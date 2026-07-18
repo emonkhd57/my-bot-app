@@ -38,7 +38,7 @@ def get_premium_flag(name):
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
 OTP_GROUP_ID = "-1003656135640"
-OTP_GROUP_URL = "https://t.me/emsms10"       
+OTP_GROUP_URL = "https://t.me/emotp100"       
 MAIN_CHANNEL_URL = "https://t.me/helptg100"   
 
 if not firebase_admin._apps:
