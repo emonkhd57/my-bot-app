@@ -766,18 +766,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'user_id': user_id, 'status': 'active', 'country_name': c_name, 'service_name': s_name, 'source': source_type, 'provider_id': provider_id_used, 'timestamp': datetime.utcnow()
             })
             
-            # স্ক্রিনশট অনুযায়ী ওপরের টেক্সট মেসেজ বডি (HTML মোড)
+            # ওপরের টেক্সট মেসেজ বডি (HTML মোড)
             num_box = (
                 f"{premium_flag} <b>{c_name} Allocated</b> ✅\n\n"
                 f"🔄 <b>Waiting for OTP...</b>"
             )
             
-            # স্ক্রিনশট অনুযায়ী বাটন লেআউট
+            # ভেজালমুক্ত বাটন লেআউট: callback_data তে নাম্বার পাঠানো হয়েছে
+            # এতে ক্লিক করলে টেলিগ্রামের নিজস্ব অ্যালার্টে "Number copied" দেখাবে এবং ব্যাকগ্রাউন্ড লুপও সচল থাকবে
             action_buttons = [
-                # প্রথম ৩টি বড় বাটন—যেখানে ক্লিক করলেই নাম্বার সরাসরি ক্লিপবোর্ডে কপি হবে
-                [InlineKeyboardButton(text=f" {number}", copy_text=number)],
-                [InlineKeyboardButton(text=f" {number}", copy_text=number)],
-                [InlineKeyboardButton(text=f" {number}", copy_text=number)],
+                [InlineKeyboardButton(text=f"📋 {number}", callback_data=f"copy_{number}")],
+                [InlineKeyboardButton(text=f"📋 {number}", callback_data=f"copy_{number}")],
+                [InlineKeyboardButton(text=f"📋 {number}", callback_data=f"copy_{number}")],
                 
                 # নিচের অপশন বাটনগুলো
                 [
