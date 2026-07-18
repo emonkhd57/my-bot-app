@@ -134,7 +134,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ দুঃখিত, আপনাকে এই বোট থেকে ব্যান করা হয়েছে।")
             return
     
-    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে स्वागतম।\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
+    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম।\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
     await update.message.reply_text(text, reply_markup=get_main_menu(user_id))
 
 async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -383,10 +383,24 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "🗑️ Remove Country" and user_id == ADMIN_ID:
         config = get_bot_settings()
         countries = config.get('countries', {})
-        if not countries:
-            await update.message.reply_text("❌ কোনো দেশ উপলব্ধ নেই।")
+        
+        keyboard = []
+        has_country = False
+        
+        # সব সার্ভিসের ভেতর ঘুরে সব দেশকে খুঁজে বের করা হচ্ছে
+        for srv_name, srv_countries in countries.items():
+            if isinstance(srv_countries, dict):
+                for c_name, c_data in srv_countries.items():
+                    has_country = True
+                    flag = c_data.get('flag', '🏳️')
+                    # ইউনিক কী বানানোর জন্য আমরা বোট ডেটাতে আইডি সেভ করবো
+                    callback_id = f"rc_{srv_name.replace(' ', '__')}_{c_name.replace(' ', '__')}"
+                    keyboard.append([InlineKeyboardButton(f"🗑️ [{srv_name}] {flag} {c_name}", callback_data=callback_id)])
+        
+        if not has_country:
+            await update.message.reply_text("❌ ডাটাবেজে রিমুভ করার মতো কোনো দেশ খুঁজে পাওয়া যায়নি।")
             return
-        keyboard = [[InlineKeyboardButton(f"🗑️ {c_name}", callback_data=f"rem_cnt_{c_name}")] for c_name in countries.keys()]
+            
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await update.message.reply_text("🗑️ **কোন দেশটি রিমুভ করতে চান সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
     
@@ -626,20 +640,26 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
 
+    # ফিক্সড কান্ট্রি রিমুভার লজিক (যা নিখুঁতভাবে কাজ করবে)
     if data.startswith("rc_"):
         await query.answer()
-        c_info = context.bot_data.get(data)
-        if c_info:
-            srv_name = c_info['srv']
-            c_name = c_info['cnt']
-            config = get_bot_settings()
-            countries = config.get('countries', {})
-            if srv_name in countries and c_name in countries[srv_name]:
-                del countries[srv_name][c_name]
-                db.collection('settings').document('config').update({'countries': countries})
-                await query.edit_message_text(f"✅ **{srv_name}** সার্ভিস থেকে **{c_name}** দেশটি সফলভাবে রিমুভ করা হয়েছে।")
-            else:
-                await query.edit_message_text("❌ দেশটি পাওয়া যায়নি বা ইতিমধ্যে রিমুভ হয়েছে।")
+        parts = data.split("_")
+        srv_name = parts[1].replace("__", " ")
+        c_name = parts[2].replace("__", " ")
+        
+        config = get_bot_settings()
+        countries = config.get('countries', {})
+        
+        if srv_name in countries and c_name in countries[srv_name]:
+            del countries[srv_name][c_name]
+            # যদি ঐ সার্ভিসের ভেতরে আর কোনো দেশ না থাকে তবে ফাঁকা ডিকশনারিটি মুছে ফেলি
+            if not countries[srv_name]:
+                del countries[srv_name]
+                
+            db.collection('settings').document('config').update({'countries': countries})
+            await query.edit_message_text(f"✅ **{srv_name}** সার্ভিস থেকে **{c_name}** দেশটি সফলভাবে রিমুভ করা হয়েছে।")
+        else:
+            await query.edit_message_text("❌ দেশটি পাওয়া যায়নি বা ইতিমধ্যে রিমুভ হয়েছে।")
         return
 
     if data == "xl_upload_init":
@@ -697,7 +717,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         srv_countries = countries.get(s_name, {})
         
-        # দেশ বাটন লেআউট গ্রিড ভিউ ফিক্স (বামে একটা ডানে একটা পজিশন)
         keyboard = []
         row = []
         for c_name, c_data in srv_countries.items():
@@ -761,19 +780,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'user_id': user_id, 'status': 'active', 'country_name': c_name, 'service_name': s_name, 'source': source_type, 'provider_id': provider_id_used, 'timestamp': datetime.utcnow()
             })
             
-            # ওপরের টেক্সট মেসেজ বডি (HTML মোড)
             num_box = (
                 f"{premium_flag} <b>{c_name} Allocated</b> ✅\n\n"
                 f"🔄 <b>Waiting for OTP...</b>"
             )
             
-            # ফিক্সড বাটন লেআউট: copy_text অবজেক্ট ব্যবহার করা হয়েছে যা ক্লিক করলেই গ্যারান্টি সহ কপি করবে
             action_buttons = [
-                [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
-                [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
-                [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
-                
-                # নিচের অপশন বাটনগুলো
+                [InlineKeyboardButton(text=f"📋 {number}", copy_text={"text": str(number)})],
+                [InlineKeyboardButton(text=f"📋 {number}", copy_text={"text": str(number)})],
+                [InlineKeyboardButton(text=f"📋 {number}", copy_text={"text": str(number)})],
                 [
                     InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
                     InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")
@@ -788,7 +803,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("❌ বর্তমানে কোনো নাম্বার খালি নেই।", reply_markup=get_inline_cancel())
     
-        
     elif data.startswith("w_method_"):
         await query.answer()
         context.user_data['w_method'] = data.split("_")[2]
@@ -810,7 +824,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.edit_message_text("✅ উইথড্র রিকোয়েস্ট সফলভাবে অ্যাপ্রুভ (Paid) করা হয়েছে।")
         
-        # এডমিন Paid বাটনে ক্লিক করলে ইউজারের কাছে পাঠানো মেসেজ টেমপ্লেট
         paid_sms = (
             f"🎉 **আপনার একাউন্টের টাকার এড করা হয়েছে !** 🎉\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
