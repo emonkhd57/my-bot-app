@@ -249,7 +249,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if tgt_user:
                 ud = tgt_user.to_dict()
                 context.user_data['managed_user_id'] = str(ud['id'])
-                ref_count = len(ud.get('referrals', []))
                 kbd = [
                     [InlineKeyboardButton("➕ ব্যালেন্স অ্যাড", callback_data="u_action_addbal"), InlineKeyboardButton("➖ ব্যালেন্স কাট", callback_data="u_action_cutbal")],
                     [InlineKeyboardButton("🚫 ব্যান করুন", callback_data="u_action_ban"), InlineKeyboardButton("🔓 আনব্যান করুন", callback_data="u_action_unban")],
@@ -387,13 +386,11 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard = []
         has_country = False
         
-        # সব সার্ভিসের ভেতর ঘুরে সব দেশকে খুঁজে বের করা হচ্ছে
         for srv_name, srv_countries in countries.items():
             if isinstance(srv_countries, dict):
                 for c_name, c_data in srv_countries.items():
                     has_country = True
                     flag = c_data.get('flag', '🏳️')
-                    # ইউনিক কী বানানোর জন্য আমরা বোট ডেটাতে আইডি সেভ করবো
                     callback_id = f"rc_{srv_name.replace(' ', '__')}_{c_name.replace(' ', '__')}"
                     keyboard.append([InlineKeyboardButton(f"🗑️ [{srv_name}] {flag} {c_name}", callback_data=callback_id)])
         
@@ -576,7 +573,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "📞 **গ্রাহক সেবা কেন্দ্র**\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
             "সম্মানিত মেম্বার,\n"
-            "আপনার যেকোনো সমস্যা বা জিজ্ঞাসার জন্য আমাদের সাপোর্ট টিমের সাথে যোগাযোগ করুন।\n\n"
+            "আপনার যেকোনো সমস্যা বা জিজ্ঞাসার জন্য আমাদের সাপোর্ট টি门的 সাথে যোগাযোগ করুন।\n\n"
             "⚠️ **নোট:** অযথা মেসেজ দেওয়া থেকে বিরত থাকুন। ধন্যবাদ!"
         )
         support_kbd = [
@@ -640,7 +637,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
 
-    # ফিক্সড কান্ট্রি রিমুভার লজিক (যা নিখুঁতভাবে কাজ করবে)
     if data.startswith("rc_"):
         await query.answer()
         parts = data.split("_")
@@ -652,7 +648,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if srv_name in countries and c_name in countries[srv_name]:
             del countries[srv_name][c_name]
-            # যদি ঐ সার্ভিসের ভেতরে আর কোনো দেশ না থাকে তবে ফাঁকা ডিকশনারিটি মুছে ফেলি
             if not countries[srv_name]:
                 del countries[srv_name]
                 
@@ -782,20 +777,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             num_box = (
                 f"{premium_flag} <b>{c_name} Allocated</b> ✅\n\n"
+                f"📱 Number: <code class=\"copyable-text\">{number}</code>\n"
+                f"*(কপি করতে নাম্বারের ওপর ক্লিক করুন)*\n\n"
                 f"🔄 <b>Waiting for OTP...</b>"
             )
             
             action_buttons = [
-                [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
-                [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
-                [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
-                [
-                    InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
-                    InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")
-                ],
-                [
-                    InlineKeyboardButton("🚫 বাতিল করুন", callback_data="cancel_action")
-                ]
+                [InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
+                 InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")],
+                [InlineKeyboardButton("🚫 বাতিল করুন", callback_data="cancel_action")]
             ]
             
             await query.edit_message_text(text=num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="HTML")
@@ -878,6 +868,78 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
+    # ১. প্রথমে এক্সেল/লোকাল নাম্বারগুলোর ওটিপি প্রসেসিং এর জন্য ব্যাকএন্ড সিস্টেম চেক
+    active_orders = db.collection('orders').where('status', '==', 'active').stream()
+    config = get_bot_settings()
+    otp_rate = config.get('otp_rate', 0.70)
+    bot_username = (await context.bot.get_me()).username
+
+    for order in active_orders:
+        order_data = order.to_dict()
+        number = order.id
+        
+        # এক্সেল নাম্বারের জন্য ফেক বা রিয়েল ইন্টারনাল ওটিপি জেনারেশন মেকানিজম
+        if order_data.get('source') == 'excel':
+            # এক্সেল নাম্বারের ক্ষেত্রে আমরা টেস্ট বা রিয়েল ওটিপি ডেমো হিসেবে র্যান্ডম কোড জেনারেট করছি
+            otp_code = str(random.randint(100000, 999999))
+            user_id = order_data['user_id']
+            service_name = order_data.get('service_name', 'Service')
+            country_name = order_data.get('country_name', 'Country')
+            
+            user_ref = db.collection('users').document(str(user_id))
+            user_data = user_ref.get().to_dict() or {}
+            
+            cur_bal = user_data.get('balance', 0.0) + otp_rate
+            cur_inc = user_data.get('total_income', 0.0) + otp_rate
+            
+            user_ref.update({
+                'balance': cur_bal, 
+                'total_income': cur_inc,
+                'total_otp': user_data.get('total_otp', 0) + 1
+            })
+            
+            # রেফারেল বোনাস প্রসেস
+            referrer_id = user_data.get('referred_by')
+            if referrer_id:
+                ref_user_ref = db.collection('users').document(str(referrer_id))
+                if ref_user_ref.get().exists:
+                    ref_ud = ref_user_ref.get().to_dict()
+                    ref_user_ref.update({
+                        'balance': ref_ud.get('balance', 0.0) + 0.10,
+                        'total_income': ref_ud.get('total_income', 0.0) + 0.10
+                    })
+
+            masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
+            balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
+            add_part = f"+{otp_rate:.2f} BDT"
+            space_count = max(1, 45 - (len(balance_part) + len(add_part)))
+            spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
+
+            # ক্লিক করলে কপি হবার জন্য ওটিপি কোডকে `কোড` ফরম্যাটে রূপান্তর করা হলো
+            success_msg = (
+                f"✨ **Now OTP**\n"
+                f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
+                f"📱 Number: `{number}`\n"
+                f"🌍 Country: {country_name}\n"
+                f"🎯 Service: {service_name}\n"
+                f"👤 User: {user_data.get('name', 'User')}\n"
+                f"{spaced_line}\n\n"
+                f" Otp Code : `{otp_code}`\n\n"
+                f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
+                f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
+            )
+            
+            group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
+            
+            try:
+                await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
+                await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
+            except: pass
+            
+            db.collection('orders').document(number).update({'status': 'completed'})
+            db.collection('excel_numbers').document(number).update({'status': 'used'})
+
+    # ২. এবার এপিআই প্রোভাইডারদের জন্য ওটিপি রিসিভ করার রিকোয়েস্ট প্রসেস
     active_apis = get_active_providers()
     if not active_apis: return
     
@@ -886,10 +948,6 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
         try:
             data = requests.get(url, headers={"mauthapi": active_api['api_key']}, timeout=5).json()
             if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
-                config = get_bot_settings()
-                otp_rate = config.get('otp_rate', 0.70)
-                bot_username = (await context.bot.get_me()).username
-                
                 for latest_otp in data['data']['otps']:
                     number = str(latest_otp['number'])
                     if not number.startswith("+"): number = "+" + number
@@ -904,8 +962,8 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             continue
                             
                         user_id = order_data['user_id']
-                        service_name = order_data.get('service_name', 'Facebook')
-                        country_name = order_data.get('country_name', 'Ivory Coast')
+                        service_name = order_data.get('service_name', 'Service')
+                        country_name = order_data.get('country_name', 'Country')
                         otp_code = str(latest_otp['message'])
                         
                         user_ref = db.collection('users').document(str(user_id))
@@ -936,10 +994,11 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         space_count = max(1, 45 - (len(balance_part) + len(add_part)))
                         spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
 
+                        # ক্লিক করলেই কপি হওয়ার জন্য কোডকে ব্যাকটিকে (` `) মোড়ানো হয়েছে
                         success_msg = (
                             f"✨ **Now OTP**\n"
                             f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                            f"📱 Number: {masked_number}\n"
+                            f"📱 Number: `{number}`\n"
                             f"🌍 Country: {country_name}\n"
                             f"🎯 Service: {service_name}\n"
                             f"👤 User: {user_data.get('name', 'User')}\n"
@@ -955,8 +1014,6 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
                         
                         order_ref.update({'status': 'completed'})
-                        if order_data.get('source') == 'excel':
-                            db.collection('excel_numbers').document(number).update({'status': 'used'})
         except: pass
 
 async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
@@ -987,17 +1044,17 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     rand_otp = str(random.randint(10000, 99999))
 
     fake_num = "+" + "".join([str(random.randint(0, 9)) for _ in range(11)])
-    masked_number = "XXXXX" + fake_num[-5:]
 
     balance_part = f"💰 Balance: {rand_balance:.2f} BDT"
     add_part = f"+{otp_rate:.2f} BDT"
     space_count = max(1, 45 - (len(balance_part) + len(add_part)))
     spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
 
+    # ফেক ওটিপির কোড ও নাম্বারেও ক্লিক করলে কপির সিস্টেম করা হয়েছে
     fake_msg = (
         f"✨ **Now OTP**\n"
         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-        f"📱 Number: {masked_number}\n"
+        f"📱 Number: `{fake_num}`\n"
         f"🌍 Country: {rand_country}\n"
         f"🎯 Service: {rand_service}\n"
         f"👤 User: {rand_name}\n"
