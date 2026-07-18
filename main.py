@@ -766,22 +766,22 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'user_id': user_id, 'status': 'active', 'country_name': c_name, 'service_name': s_name, 'source': source_type, 'provider_id': provider_id_used, 'timestamp': datetime.utcnow()
             })
             
+            # নাম্বারের মেসেজ টেক্সট
             num_box = (
                 f"{premium_flag} **{c_name} Allocated** ✅\n\n"
-                f"🔢 **Number:** `{number}`\n\n"
-                f"⚠️ *নাম্বারটি কপি করতে ওপরের নাম্বারের ওপর ক্লিক করুন।*\n\n"
                 f"🔄 **Waiting for OTP.......**"
             )
             
+            # স্ক্রিনশটের মতো বাটন লেআউট
+            # এখানে 3টি বাটন নাম্বারের জন্য এবং বাকিগুলো অ্যাকশন বাটন
             action_buttons = [
-                # বাটনের টেক্সটে ব্যাকটিক্স যোগ করা হলো
-                [InlineKeyboardButton(f"`{number}`", callback_data=f"copy_num_{number}")],
-                [InlineKeyboardButton(f"`{number}`", callback_data=f"copy_num_{number}")],
-                [InlineKeyboardButton(f"`{number}`", callback_data=f"copy_num_{number}")],
-                [InlineKeyboardButton(" Telegram ওটিপি গ্রুপ ↗️", url=OTP_GROUP_URL), 
-                 InlineKeyboardButton("🔄 নাম্বার পরিবর্তন করুন ♻️", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")],
-                [InlineKeyboardButton("🚫 বাতিল করুন", callback_data="cancel_action")]
-        ]
+                [InlineKeyboardButton(f"📋 {number}", callback_data=f"copy_num_{number}")],
+                [InlineKeyboardButton(f"📋 {number}", callback_data=f"copy_num_{number}")],
+                [InlineKeyboardButton(f"📋 {number}", callback_data=f"copy_num_{number}")],
+                [InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
+                 InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")],
+                [InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")]
+            ]
             await query.edit_message_text(num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="Markdown")
         else:
             await query.edit_message_text("❌ বর্তমানে কোনো নাম্বার খালি নেই।", reply_markup=get_inline_cancel())
