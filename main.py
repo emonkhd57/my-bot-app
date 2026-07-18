@@ -766,23 +766,21 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'user_id': user_id, 'status': 'active', 'country_name': c_name, 'service_name': s_name, 'source': source_type, 'provider_id': provider_id_used, 'timestamp': datetime.utcnow()
             })
             
-            # নাম্বারের মেসেজ টেক্সট
+            # সমাধান: নাম্বারটিকে সরাসরি মেসেজ বডিতে মোনোস্পেস ফরম্যাটে (ব্যাকটিকের মধ্যে) দিন
             num_box = (
                 f"{premium_flag} **{c_name} Allocated** ✅\n\n"
+                f"🔢 **Number (কপি করতে নাম্বারে ক্লিক করুন):**\n`{number}`\n\n"
                 f"🔄 **Waiting for OTP.......**"
             )
             
-            # স্ক্রিনশটের মতো বাটন লেআউট
-            # এখানে 3টি বাটন নাম্বারের জন্য এবং বাকিগুলো অ্যাকশন বাটন
+            # এখানে বাটনগুলোতে নাম্বার না দিয়ে শুধু অ্যাকশন বাটন রাখুন
             action_buttons = [
-                [InlineKeyboardButton(f"📋 {number}", callback_data=f"copy_num_{number}")],
-                [InlineKeyboardButton(f"📋 {number}", callback_data=f"copy_num_{number}")],
-                [InlineKeyboardButton(f"📋 {number}", callback_data=f"copy_num_{number}")],
-                [InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
+                [InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_ID), 
                  InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")],
                 [InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")]
             ]
             await query.edit_message_text(num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="Markdown")
+            
         else:
             await query.edit_message_text("❌ বর্তমানে কোনো নাম্বার খালি নেই।", reply_markup=get_inline_cancel())
             
