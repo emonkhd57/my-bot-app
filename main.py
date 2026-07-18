@@ -786,9 +786,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             action_buttons = [
-                [InlineKeyboardButton(text=f"📋 {number}", copy_text={"text": str(number)})],
-                [InlineKeyboardButton(text=f"📋 {number}", copy_text={"text": str(number)})],
-                [InlineKeyboardButton(text=f"📋 {number}", copy_text={"text": str(number)})],
+                [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
+                [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
+                [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
                 [
                     InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
                     InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")
