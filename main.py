@@ -761,25 +761,27 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         break
                 except: continue
                 
-        if number:
+    if number:
             db.collection('orders').document(str(number)).set({
                 'user_id': user_id, 'status': 'active', 'country_name': c_name, 'service_name': s_name, 'source': source_type, 'provider_id': provider_id_used, 'timestamp': datetime.utcnow()
             })
             
-            # সমাধান: নাম্বারটিকে সরাসরি মেসেজ বডিতে মোনোস্পেস ফরম্যাটে (ব্যাকটিকের মধ্যে) দিন
+            # HTML ফরম্যাটে মেসেজ (কোড সুন্দরভাবে কাজ করবে)
             num_box = (
-                f"{premium_flag} **{c_name} Allocated** ✅\n\n"
-                f"🔢 **Number (কপি করতে নাম্বারে ক্লিক করুন):**\n`{number}`\n\n"
-                f"🔄 **Waiting for OTP.......**"
+                f"{premium_flag} <b>{c_name} Allocated</b> ✅\n\n"
+                f"🔢 <b>Number (কপি করতে নাম্বারে ক্লিক করুন):</b>\n<code>{number}</code>\n\n"
+                f"🔄 <b>Waiting for OTP...</b>"
             )
             
-            # এখানে বাটনগুলোতে নাম্বার না দিয়ে শুধু অ্যাকশন বাটন রাখুন
+            # URL-এ ID এর বদলে URL ভেরিয়েবল সেট করা হয়েছে
             action_buttons = [
-                [InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_ID), 
+                [InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
                  InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")],
                 [InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")]
             ]
-            await query.edit_message_text(num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="Markdown")
+            
+            # parse_mode="HTML" সাকসেসফুলি সেট করা হয়েছে
+            await query.edit_message_text(text=num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="HTML")    
             
         else:
             await query.edit_message_text("❌ বর্তমানে কোনো নাম্বার খালি নেই।", reply_markup=get_inline_cancel())
