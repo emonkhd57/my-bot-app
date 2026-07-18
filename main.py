@@ -386,12 +386,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not countries:
             await update.message.reply_text("❌ কোনো দেশ উপলব্ধ নেই।")
             return
-        keyboard = []
-        for srv, c_dict in countries.items():
-            for c_name in c_dict.keys():
-                clean_callback = f"rc_{srv[:5]}_{c_name.replace(' ', '')[:15]}"
-                context.bot_data[clean_callback] = {"srv": srv, "cnt": c_name}
-                keyboard.append([InlineKeyboardButton(f"🗑️ {srv} - {c_name}", callback_data=clean_callback)])
+        keyboard = [[InlineKeyboardButton(f"🗑️ {c_name}", callback_data=f"rem_cnt_{c_name}")] for c_name in countries.keys()]
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await update.message.reply_text("🗑️ **কোন দেশটি রিমুভ করতে চান সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
     
