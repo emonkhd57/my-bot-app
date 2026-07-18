@@ -12,15 +12,10 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 import firebase_admin
 from firebase_admin import credentials, firestore
 import requests
-
-# এক্সেল ফাইল রিড করার জন্য লাইব্রেরি
 import openpyxl
-
-# পাইথনের বিল্ট-ইন সার্ভার (Render পোর্টের জন্য)
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 
-# --- পাইথন asyncio লুপ ক্র্যাশ পলিসি ফিক্স ---
 if sys.platform >= 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 else:
@@ -30,7 +25,6 @@ else:
     except ImportError:
         pass
 
-# --- গলোবাল প্রিমিয়াম ফ্ল্যাগ ডিকশনারি ---
 COUNTRY_FLAGS = {
     "tanzania": "🇹🇿", "ivory coast": "🇨🇮", "montenegro": "🇲🇪", 
     "guinea": "🇬🇳", "sierra leone": "🇸🇱", "nigeria": "🇳🇬",
@@ -41,16 +35,12 @@ def get_premium_flag(name):
     clean_name = name.strip().lower()
     return COUNTRY_FLAGS.get(clean_name, "🏳️")
 
-# --- কনফিগারেশন ---
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
-
-# ওটিপি গ্রুপ আইডি ও লিংক
 OTP_GROUP_ID = "-1003656135640"
 OTP_GROUP_URL = "https://t.me/emsms10"       
 MAIN_CHANNEL_URL = "https://t.me/helptg100"   
 
-# ফায়ারবেস ইনিশিয়ালাইজেশন
 if not firebase_admin._apps:
     firebase_json = json.loads(os.getenv('FIREBASE_JSON'))
     cred = credentials.Certificate(firebase_json)
@@ -58,7 +48,6 @@ if not firebase_admin._apps:
 
 db = firestore.client()
 
-# --- প্রিমিয়াম সার্ভিস ইমোজি হেল্পার ---
 def get_service_emoji(service_name):
     srv = service_name.lower()
     if "telegram" in srv: return "✈️"
@@ -86,9 +75,7 @@ def get_bot_settings():
     else:
         default_config = {
             'otp_rate': 0.70, 'min_withdraw': 110.0,
-            'countries': {},
-            'services': {},
-            'fake_otp_enabled': False
+            'countries': {}, 'services': {}, 'fake_otp_enabled': False
         }
         db.collection('settings').document('config').set(default_config)
         return default_config
@@ -136,18 +123,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user_doc.exists:
         user_ref.set({
             'id': user_id, 'name': first_name, 'username': username,
-            'balance': 0.0, 'total_otp': 0, 'referred_by': referrer, 'is_banned': False, 'referrals': []
+            'balance': 0.0, 'pending_withdraw': 0.0, 'total_income': 0.0, 'total_otp': 0, 
+            'referred_by': referrer, 'is_banned': False, 'referrals': []
         })
         if referrer:
             db.collection('users').document(str(referrer)).update({'referrals': firestore.ArrayUnion([str(user_id)])})
     else:
-        # সর্বদা বর্তমান ইউজারনেম আপডেট রাখা নিশ্চিত করা হচ্ছে
         user_ref.update({'username': username, 'name': first_name})
         if user_doc.to_dict().get('is_banned', False):
             await update.message.reply_text("❌ দুঃখিত, আপনাকে এই বোট থেকে ব্যান করা হয়েছে।")
             return
     
-    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম।\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
+    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে स्वागतম।\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
     await update.message.reply_text(text, reply_markup=get_main_menu(user_id))
 
 async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -258,10 +245,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if not tgt_user:
                 users_by_uname = db.collection('users').where('username', '==', search_query).limit(1).get()
                 if users_by_uname: tgt_user = users_by_uname[0]
-                
-            if not tgt_user:
-                users_by_name = db.collection('users').where('name', '==', text.strip()).limit(1).get()
-                if users_by_name: tgt_user = users_by_name[0]
 
             if tgt_user:
                 ud = tgt_user.to_dict()
@@ -277,20 +260,25 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     f"🆔 Telegram ID: `{ud['id']}`\n"
                     f"📛 নাম: {ud.get('name', 'Unknown')}\n"
                     f"🔗 ইউজারনেম: @{ud.get('username', 'None')}\n"
-                    f"💰 বর্তমান ব্যালেন্স: {ud['balance']:.2f} BDT\n"
+                    f"💰 বর্তমান ব্যালেন্স: {ud.get('balance', 0.0):.2f} BDT\n"
+                    f"⏳ পেন্ডিং উইথড্র: {ud.get('pending_withdraw', 0.0):.2f} BDT\n"
                     f"✅ মোট ওটিপি রিসিভ: {ud.get('total_otp', 0)} টি\n"
-                    f"🎁 মোট সফল রেফার: {ref_count} জন\n"
                     f"🚫 অ্যাকাউন্ট স্ট্যাটাস: {'Banned' if ud.get('is_banned') else 'Active'}"
                 )
                 await update.message.reply_text(info_text, reply_markup=InlineKeyboardMarkup(kbd), parse_mode="Markdown")
             else:
-                await update.message.reply_text("❌ এই আইডি, ইউজারনেম বা নাম দিয়ে কোনো ইউজার পাওয়া যায়নি।")
+                await update.message.reply_text("❌ এই আইডি বা ইউজারনেম দিয়ে কোনো ইউজার পাওয়া যায়নি।")
         elif action == 'add_bal_amount':
             try:
                 tgt_id = context.user_data.get('managed_user_id')
                 ref = db.collection('users').document(tgt_id)
-                current_bal = ref.get().to_dict().get('balance', 0.0)
-                ref.update({'balance': current_bal + float(text)})
+                ud_data = ref.get().to_dict()
+                current_bal = ud_data.get('balance', 0.0)
+                current_inc = ud_data.get('total_income', 0.0)
+                ref.update({
+                    'balance': current_bal + float(text),
+                    'total_income': current_inc + float(text)
+                })
                 await update.message.reply_text("✅ ব্যালেন্স সফলভাবে যোগ করা হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
         elif action == 'cut_bal_amount':
@@ -303,10 +291,13 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
         elif action == 'broadcast':
             users = db.collection('users').stream()
+            count = 0
             for u in users:
-                try: await context.bot.send_message(chat_id=u.to_dict()['id'], text=f"📢 **নোটিশ:**\n\n{text}")
+                try: 
+                    await context.bot.send_message(chat_id=u.to_dict()['id'], text=f"{text}")
+                    count += 1
                 except: pass
-            await update.message.reply_text("✅ ব্রডকাস্ট সফল হয়েছে।")
+            await update.message.reply_text(f"✅ ব্রডকাস্ট সফল হয়েছে! মোট {count} জন ইউজারের কাছে নোটিশ পাঠানো হয়েছে।")
             
         context.user_data['adm_action'] = None
         return
@@ -336,12 +327,21 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             elif amount > ud['balance']:
                 await update.message.reply_text("❌ আপনার একাউন্টে পর্যাপ্ত ব্যালেন্স নেই।")
             else:
-                user_ref.update({'balance': ud['balance'] - amount})
+                user_ref.update({
+                    'balance': ud['balance'] - amount,
+                    'pending_withdraw': ud.get('pending_withdraw', 0.0) + amount
+                })
                 db.collection('withdraws').add({
                     'user_id': user_id, 'name': ud.get('name', 'User'), 'method': context.user_data.get('w_method'),
                     'number': context.user_data.get('w_num'), 'amount': amount, 'status': 'pending', 'timestamp': datetime.utcnow()
                 })
-                await update.message.reply_text("✅ **আপনার উইথড্র আবেদনটি সফলভাবে সিস্টেমে জমা হয়েছে!**\n\n⏳ আপনার পেমেন্ট রিকোয়েস্টটি এডমিন প্যানেল রিভিউ করছে। অনুগ্রহ করে অপেক্ষা করুন।")
+                
+                success_submit = (
+                    "✅ **আপনার উইথড্র আবেদনটি সফলভাবে জমা হয়েছে!**\n\n"
+                    "⚡ আগামী ৫ থেকে ৭ ঘণ্টার ভিতরে আপনার ওয়ালেটে পেমেন্ট পৌঁছে যাবে।\n\n"
+                    "✨ আমাদের সাথে থাকার জন্য ধন্যবাদ! ✨"
+                )
+                await update.message.reply_text(success_submit)
         except: 
             await update.message.reply_text("❌ ভুল অ্যামাউন্ট ইনপুট।")
         context.user_data['usr_action'] = None
@@ -389,10 +389,16 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard = []
         for srv, c_dict in countries.items():
             for c_name in c_dict.keys():
-                keyboard.append([InlineKeyboardButton(f"🗑️ {srv} - {c_name}", callback_data=f"rem_cnt_{srv}_{c_name.replace(' ', '__')}")])
+                clean_callback = f"rc_{srv[:5]}_{c_name.replace(' ', '')[:15]}"
+                context.bot_data[clean_callback] = {"srv": srv, "cnt": c_name}
+                keyboard.append([InlineKeyboardButton(f"🗑️ {srv} - {c_name}", callback_data=clean_callback)])
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await update.message.reply_text("🗑️ **কোন দেশটি রিমুভ করতে চান সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
     
+    elif text == "📢 ব্রডকাস্ট" and user_id == ADMIN_ID:
+        context.user_data['adm_action'] = 'broadcast'
+        await update.message.reply_text("✍️ আপনি সকল ইউজারের কাছে যে নোটিশ বা মেসেজটি পাঠাতে চান তা টাইপ করে এখানে পাঠান:", reply_markup=get_inline_cancel())
+
     elif text.startswith("📢 Fake OTP:") and user_id == ADMIN_ID:
         config = get_bot_settings()
         current_status = config.get('fake_otp_enabled', False)
@@ -461,7 +467,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         list_text = f"👥 **বোটে মোট রেজিস্টার্ড ইউজার:** {len(users)} জন\n━━━━━━━━━━━━━━━━━━━━━━\n"
         for idx, u in enumerate(users, 1):
             ud = u.to_dict()
-            # ইউজারনেম ফিক্স: ডাটাবেজে None বা খালি থাকলে স্পষ্ট করে 'নাই' দেখাবে
             tg_username = ud.get('username', 'None')
             if tg_username == "None" or not tg_username:
                 tg_username = "নাই"
@@ -491,7 +496,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         for r in reqs:
             rd = r.to_dict()
             kbd = [
-                [InlineKeyboardButton("✅ Approve", callback_data=f"app_w_{r.id}"),
+                [InlineKeyboardButton("✅ Paid", callback_data=f"app_w_{r.id}"),
                  InlineKeyboardButton("❌ Reject (Refund)", callback_data=f"rej_w_{r.id}")]
             ]
             await update.message.reply_text(f"💰 **উইথড্র রিকোয়েস্ট:**\n👤 নাম: {rd.get('name', 'User')}\n🆔 ID: `{rd['user_id']}`\n📱 মেথড: {rd['method'].upper()}\n🔢 নাম্বার: `{rd['number']}`\n💵 পরিমাণ: {rd['amount']} BDT", reply_markup=InlineKeyboardMarkup(kbd), parse_mode="Markdown")
@@ -510,16 +515,22 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "💸 Balance":
         user_id = update.effective_user.id
         user_data = db.collection('users').document(str(user_id)).get().to_dict() or {}
+        
         balance = user_data.get('balance', 0.0)
+        pending_w = user_data.get('pending_withdraw', 0.0)
+        total_inc = user_data.get('total_income', 0.0)
         total_otp = user_data.get('total_otp', 0)
         
-        text_msg = (
-            f"💰 **আপনার ব্যালেন্স**\n"
-            f"──────────────────────\n"
-            f"🔥 **ব্যালেন্স:** {balance:.2f} BDT\n"
-            f"✅ **মোট ওটিপি রিসিভ:** {total_otp} টি"
+        balance_card = (
+            f"💵আপনার ব্যালেন্স\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💵ব্যালেন্স: {balance:.2f} BDT\n"
+            f"💸পেন্ডিং (উইথড্র): {pending_w:.2f} BDT\n"
+            f" 💰Total Income: {total_inc:.2f} BDT\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📞মোট ওটিপি রিসিভ: {total_otp} টি"
         )
-        await update.message.reply_text(text_msg, parse_mode="Markdown")
+        await update.message.reply_text(balance_card)
         
     elif text == "💰 Withdraw":
         user_id = update.effective_user.id
@@ -610,15 +621,31 @@ async def handle_document_upload(update: Update, context: ContextTypes.DEFAULT_T
                         })
                         added_count += 1
                         
-            await update.message.reply_text(f"✅ সফলভাবে **{added_count}** টি ইউনিক নাম্বার এক্সেল থেকে **{srv_name} ({cnt_name})** সার্ভিসের আন্ডারে ডাটাবেজে লোড করা হয়েছে।")
+            await update.message.reply_text(f"✅ সফলভাবে **{added_count}** টি নাম্বার এক্সেল থেকে **{srv_name} ({cnt_name})** এ লোড করা হয়েছে।")
         except Exception as e:
-            await update.message.reply_text(f"❌ এক্সেল ফাইল প্রসেস করতে ত্রুটি হয়েছে। এরর: {str(e)}")
+            await update.message.reply_text(f"❌ এক্সেল প্রসেস এরর: {str(e)}")
             
         context.user_data['adm_action'] = None
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
+
+    if data.startswith("rc_"):
+        await query.answer()
+        c_info = context.bot_data.get(data)
+        if c_info:
+            srv_name = c_info['srv']
+            c_name = c_info['cnt']
+            config = get_bot_settings()
+            countries = config.get('countries', {})
+            if srv_name in countries and c_name in countries[srv_name]:
+                del countries[srv_name][c_name]
+                db.collection('settings').document('config').update({'countries': countries})
+                await query.edit_message_text(f"✅ **{srv_name}** সার্ভিস থেকে **{c_name}** দেশটি সফলভাবে রিমুভ করা হয়েছে।")
+            else:
+                await query.edit_message_text("❌ দেশটি পাওয়া যায়নি বা ইতিমধ্যে রিমুভ হয়েছে।")
+        return
 
     if data == "xl_upload_init":
         await query.answer()
@@ -631,7 +658,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for doc in docs:
             db.collection('excel_numbers').document(doc.id).delete()
             deleted += 1
-        await query.edit_message_text(f"🗑️ এক্সেল ডাটাবেজ থেকে মোট **{deleted}** টি নাম্বার সফলভাবে রিমুভ করা হয়েছে।")
+        await query.edit_message_text(f"🗑️ এক্সেল ডাটাবেজ থেকে মোট **{deleted}** টি নাম্বার রিমুভ করা হয়েছে।")
     elif data.startswith("toggle_api_"):
         await query.answer()
         api_id = data.split("_")[2]
@@ -665,17 +692,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['target_add_country_service'] = srv_name
         context.user_data['adm_action'] = 'add_country_input'
         await query.edit_message_text(f"✍️ **{srv_name}** সার্ভিসের জন্য দেশের নাম ও প্রোভাইডার রেঞ্জ কোড স্পেস দিয়ে পাঠান।\n\n✍️ উদাহরণ: `Ivory Coast 225079`", reply_markup=get_inline_cancel())
-    elif data.startswith("rem_cnt_"):
-        await query.answer()
-        parts = data.split("_")
-        srv_name = parts[2]
-        c_name = parts[3].replace("__", " ")
-        config = get_bot_settings()
-        countries = config.get('countries', {})
-        if srv_name in countries and c_name in countries[srv_name]:
-            del countries[srv_name][c_name]
-            db.collection('settings').document('config').update({'countries': countries})
-            await query.edit_message_text(f"✅ **{srv_name}** সার্ভিস থেকে **{c_name}** দেশটি রিমুভ করা হয়েছে।")
     elif data.startswith("usr_s_"):
         await query.answer()
         s_code = data.split("_")[2]
@@ -685,9 +701,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         s_name = next((k for k, v in config['services'].items() if v == s_code), "Service")
         
         srv_countries = countries.get(s_name, {})
+        
+        # দেশ বাটন লেআউট গ্রিড ভিউ ফিক্স (বামে একটা ডানে একটা পজিশন)
         keyboard = []
+        row = []
         for c_name, c_data in srv_countries.items():
-            keyboard.append([InlineKeyboardButton(f"{c_data['flag']} {c_name}", callback_data=f"usr_c_{c_data['code']}_{c_name.replace(' ', '__')}")])
+            btn = InlineKeyboardButton(f"{c_data['flag']} {c_name}", callback_data=f"usr_c_{c_data['code']}_{c_name.replace(' ', '__')}")
+            row.append(btn)
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
             
         keyboard.append([InlineKeyboardButton("⬅️ সার্ভিস তালিকায় ফিরে যান", callback_data="back_to_services")])
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
@@ -741,17 +766,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 'user_id': user_id, 'status': 'active', 'country_name': c_name, 'service_name': s_name, 'source': source_type, 'provider_id': provider_id_used, 'timestamp': datetime.utcnow()
             })
             
-            escaped_flag = escape_markdown_v2(premium_flag)
-            escaped_country = escape_markdown_v2(c_name)
-            
-            # নাম্বারটি MarkdownV2-এর মনোস্পেস ব্যাকটিক্স ( ` ) ফরম্যাটে দেওয়া হয়েছে, যাতে টেক্সট বডি থেকেও ক্লিক করলে কপি হয়
+            # টাচ করলেই যাতে নাম্বার অটোমেটিক কপি হয়, মেসেজ বডির ভেতর মনোস্পেস ফরম্যাট ফিক্স করা হয়েছে
             num_box = (
-                f"{escaped_flag} *{escaped_country} Allocated* ✅\n\n"
-                f"🔢 *Number:* `{escape_markdown_v2(str(number))}`\n\n"
-                f"🔄 *Waiting for OTP\\.\\.\\.\\.\\.\\.\\.\\.*"
+                f"{premium_flag} **{c_name} Allocated** ✅\n\n"
+                f"🔢 **Number:** `{number}`\n\n"
+                f"🔄 **Waiting for OTP.......**"
             )
             
-            # বাটন ট্রিগার ক্লিক অপ্টিমাইজেশন
             action_buttons = [
                 [InlineKeyboardButton(f"{number}", callback_data=f"copy_num_{number}")],
                 [InlineKeyboardButton(f"{number}", callback_data=f"copy_num_{number}")],
@@ -760,13 +781,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  InlineKeyboardButton("🔄 নাম্বার পরিবর্তন করুন ♻️", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")],
                 [InlineKeyboardButton("🚫 বাতিল করুন", callback_data="cancel_action")]
             ]
-            await query.edit_message_text(num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="MarkdownV2")
+            await query.edit_message_text(num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="Markdown")
         else:
             await query.edit_message_text("❌ বর্তমানে কোনো নাম্বার খালি নেই।", reply_markup=get_inline_cancel())
             
     elif data.startswith("copy_num_"):
         num = data.split("_")[2]
-        # এলার্ট পপ-আপ প্রপারলি ট্রিগার করা হয়েছে যাতে ক্লিক করলেই স্ক্রিনে নাম্বার শো করে কপি করা যায়
         await query.answer(text=f"{num}", show_alert=True)
         
     elif data.startswith("w_method_"):
@@ -782,18 +802,24 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wd_data = w_ref.get().to_dict()
         
         w_ref.update({'status': 'approved'})
-        await query.edit_message_text("✅ উইথড্র রিকোয়েস্ট সফলভাবে অ্যাপ্রুভ করা হয়েছে।")
         
-        success_text = (
-            f"🎉 **আপনার উইথড্র রিকোয়েস্টটি সফলভাবে সম্পন্ন হয়েছে!** 🎉\n"
+        user_ref = db.collection('users').document(str(wd_data['user_id']))
+        ud_current = user_ref.get().to_dict()
+        current_pend = ud_current.get('pending_withdraw', 0.0)
+        user_ref.update({'pending_withdraw': max(0.0, current_pend - wd_data['amount'])})
+        
+        await query.edit_message_text("✅ উইথড্র রিকোয়েস্ট সফলভাবে অ্যাপ্রুভ (Paid) করা হয়েছে।")
+        
+        # এডমিন Paid বাটনে ক্লিক করলে ইউজারের কাছে পাঠানো মেসেজ টেমপ্লেট
+        paid_sms = (
+            f"🎉 **আপনার একাউন্টের টাকার এড করা হয়েছে !** 🎉\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"💵 **পরিমাণ:** {wd_data['amount']:.2f} BDT\n"
-            f"📱 **পেমেন্ট মেথড:** {wd_data['method'].upper()}\n"
-            f"🔢 **অ্যাকাউন্ট নাম্বার:** `{wd_data['number']}`\n\n"
-            f"⚡ **আগামী ৫ থেকে ৭ ঘণ্টার ভিতরে আপনার ওয়ালেটে পেমেন্ট পৌঁছে যাবে।**\n\n"
+            f"💵 পরিমাণ: {wd_data['amount']:.2f} BDT\n"
+            f"📱 পেমেন্ট মেথড: {wd_data['method'].upper()}\n"
+            f"🔢 অ্যাকাউন্ট নাম্বার: {wd_data['number']}\n\n"
             f"✨ আমাদের সাথে থাকার জন্য ধন্যবাদ! ✨"
         )
-        try: await context.bot.send_message(chat_id=wd_data['user_id'], text=success_text, parse_mode="Markdown")
+        try: await context.bot.send_message(chat_id=wd_data['user_id'], text=paid_sms)
         except: pass
         
     elif data.startswith("rej_w_"):
@@ -804,11 +830,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         w_ref.update({'status': 'rejected'})
         user_ref = db.collection('users').document(str(wd_data['user_id']))
-        current_bal = user_ref.get().to_dict().get('balance', 0.0)
-        user_ref.update({'balance': current_bal + wd_data['amount']})
+        ud_current = user_ref.get().to_dict()
+        current_bal = ud_current.get('balance', 0.0)
+        current_pend = ud_current.get('pending_withdraw', 0.0)
+        
+        user_ref.update({
+            'balance': current_bal + wd_data['amount'],
+            'pending_withdraw': max(0.0, current_pend - wd_data['amount'])
+        })
         
         await query.edit_message_text("❌ উইথড্র রিকোয়েস্ট রিজেক্ট করা হয়েছে এবং ব্যালেন্স রিফান্ড করা হয়েছে।")
-        try: await context.bot.send_message(chat_id=wd_data['user_id'], text=f"❌ আপনার {wd_data['amount']:.2f} BDT এর উইথড্র রিকোয়েস্টটি এডমিন বাতিল করেছে এবং টাকা আপনার মেইন ব্যালেন্সে ফেরত দেওয়া হয়েছে।")
+        try: await context.bot.send_message(chat_id=wd_data['user_id'], text=f"❌ আপনার {wd_data['amount']:.2f} BDT এর উইথড্র রিকোয়েস্টটি বাতিল করা হয়েছে এবং ব্যালেন্স ফেরত দেওয়া হয়েছে।")
         except: pass
         
     elif data.startswith("u_action_"):
@@ -867,13 +899,23 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         user_data = user_ref.get().to_dict() or {}
                         
                         cur_bal = user_data.get('balance', 0.0) + otp_rate
-                        user_ref.update({'balance': cur_bal, 'total_otp': user_data.get('total_otp', 0) + 1})
+                        cur_inc = user_data.get('total_income', 0.0) + otp_rate
+                        
+                        user_ref.update({
+                            'balance': cur_bal, 
+                            'total_income': cur_inc,
+                            'total_otp': user_data.get('total_otp', 0) + 1
+                        })
                         
                         referrer_id = user_data.get('referred_by')
                         if referrer_id:
                             ref_user_ref = db.collection('users').document(str(referrer_id))
                             if ref_user_ref.get().exists:
-                                ref_user_ref.update({'balance': ref_user_ref.get().to_dict().get('balance', 0.0) + 0.10})
+                                ref_ud = ref_user_ref.get().to_dict()
+                                ref_user_ref.update({
+                                    'balance': ref_ud.get('balance', 0.0) + 0.10,
+                                    'total_income': ref_ud.get('total_income', 0.0) + 0.10
+                                })
 
                         masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
                         balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
@@ -905,18 +947,15 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
         except: pass
 
 async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
-    # ফেক ওটিপি জেনারেটর রিফ্যাক্টরিং ও ফিক্স
     config = get_bot_settings()
     if not config.get('fake_otp_enabled', False): return
 
     fake_names = ["Sabbir", "Rahat", "Emon", "Tanvir", "Noyon", "Alamin", "Sujon", "Mim", "Riya", "Antor", "Ishrat"]
-    
     services_dict = config.get('services', {"Facebook": "fb"})
     services_list = list(services_dict.keys()) if services_dict else ["Facebook"]
     
     countries_dict = config.get('countries', {})
     countries_list = []
-    
     if countries_dict:
         for srv, c_dict in countries_dict.items():
             if isinstance(c_dict, dict):
@@ -957,15 +996,14 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
     try: 
         await context.bot.send_message(chat_id=OTP_GROUP_ID, text=fake_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
-    except Exception as e:
-        print(f"Fake OTP Log Error: {str(e)}")
+    except: pass
 
 class RenderServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"Bot is live on Render!")
+        self.wfile.write(b"Bot Engine Core Online")
 
 def run_built_in_server():
     port = int(os.environ.get("PORT", 10000))
@@ -983,7 +1021,7 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_inputs))
     
-    print("Now OTP Engine Running...")
+    print("Bot Running successfully...")
     app.run_polling(close_loop=False)
 
 if __name__ == '__main__':
