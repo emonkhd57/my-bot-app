@@ -775,9 +775,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # ভেজালমুক্ত বাটন লেআউট: callback_data তে নাম্বার পাঠানো হয়েছে
             # এতে ক্লিক করলে টেলিগ্রামের নিজস্ব অ্যালার্টে "Number copied" দেখাবে এবং ব্যাকগ্রাউন্ড লুপও সচল থাকবে
             action_buttons = [
-                [InlineKeyboardButton(text=f"📋 {number}", callback_data=f"copy_{number}")],
-                [InlineKeyboardButton(text=f"📋 {number}", callback_data=f"copy_{number}")],
-                [InlineKeyboardButton(text=f"📋 {number}", callback_data=f"copy_{number}")],
+                [InlineKeyboardButton(text=f" {number}", callback_data=f"copy_{number}")],
+                [InlineKeyboardButton(text=f" {number}", callback_data=f"copy_{number}")],
+                [InlineKeyboardButton(text=f" {number}", callback_data=f"copy_{number}")],
                 
                 # নিচের অপশন বাটনগুলো
                 [
@@ -794,9 +794,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("❌ বর্তমানে কোনো নাম্বার খালি নেই।", reply_markup=get_inline_cancel())
             
-    elif data.startswith("copy_num_"):
-        num = data.split("_")[2]
-        await query.answer(text=f"{num}", show_alert=True)
+    
         
     elif data.startswith("w_method_"):
         await query.answer()
