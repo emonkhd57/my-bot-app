@@ -779,7 +779,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                  InlineKeyboardButton("🔄 নাম্বার পরিবর্তন করুন ♻️", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")],
                 [InlineKeyboardButton("🚫 বাতিল করুন", callback_data="cancel_action")]
             ]
-            await query.edit_message_text(num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="Markdown")full 
+            await query.edit_message_text(num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="Markdown")
         else:
             await query.edit_message_text("❌ বর্তমানে কোনো নাম্বার খালি নেই।", reply_markup=get_inline_cancel())
             
