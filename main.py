@@ -81,8 +81,13 @@ def get_bot_settings():
         return default_config
 
 def get_main_menu(user_id):
-    keyboard = "🎭 Number নিন", "💸 Balance"], ["💰 Withdraw", "🎁 My Referrals"], ["🧐 Support"
-    if user_id == ADMIN_ID: keyboard.append(["👑 Admin Panel"])
+    keyboard = [
+        ["🎭 Number নিন", "💸 Balance"], 
+        ["💰 Withdraw", "🎁 My Referrals"], 
+        ["🧐 Support"]
+    ]
+    if user_id == ADMIN_ID: 
+        keyboard.append(["👑 Admin Panel"])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_admin_menu():
