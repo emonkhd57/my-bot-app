@@ -1,4 +1,3 @@
-
 import logging
 import os
 import json
@@ -7,17 +6,28 @@ import sys
 import random
 import io
 import re
+import time
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import firebase_admin
 from firebase_admin import credentials, firestore
-import requests
+import httpx  # রিকোয়েস্ট ব্লক এড়ানোর জন্য অসিনক্রোনাস ক্লায়েন্ট
 import openpyxl
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 
+# Logging setup
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 LOCAL_PROCESSED_OTPS = set()
+
+# ফায়ারবেস রিড কমানোর জন্য ক্যাশ ভ্যারিয়েবল (Global Cache)
+CACHE_SETTINGS = None
+CACHE_PROVIDERS = None
+LAST_CACHE_TIME = 0
+CACHE_DURATION = 300  # ৫ মিনিট (৩০০ সেকেন্ড) পর পর ফায়ারবেস চেক করবে
 
 if sys.platform >= 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -63,25 +73,41 @@ def get_service_emoji(service_name):
     elif "twitter" in srv or "x" in srv: return "🐦"
     else: return "🎯"
 
+# ফায়ারবেস রিড অপ্টিমাইজড ফাংশন
+def update_cache_if_expired(force=False):
+    global CACHE_SETTINGS, CACHE_PROVIDERS, LAST_CACHE_TIME
+    current_time = time.time()
+    
+    if force or (current_time - LAST_CACHE_TIME > CACHE_DURATION) or CACHE_SETTINGS is None:
+        try:
+            # সেটিংস রিড
+            settings_ref = db.collection('settings').document('config').get()
+            if settings_ref.exists:
+                data = settings_ref.to_dict()
+                if 'services' not in data: data['services'] = {}
+                if 'countries' not in data: data['countries'] = {}
+                if 'fake_otp_enabled' not in data: data['fake_otp_enabled'] = False
+                CACHE_SETTINGS = data
+            else:
+                CACHE_SETTINGS = {'otp_rate': 0.70, 'min_withdraw': 110.0, 'countries': {}, 'services': {}, 'fake_otp_enabled': False}
+                db.collection('settings').document('config').set(CACHE_SETTINGS)
+            
+            # প্রোভাইডার রিড
+            providers = db.collection('api_providers').where('is_active', '==', True).get()
+            CACHE_PROVIDERS = [p.to_dict() for p in providers]
+            
+            LAST_CACHE_TIME = current_time
+            logger.info("Firebase cache updated successfully.")
+        except Exception as e:
+            logger.error(f"Error updating firebase cache: {e}")
+
 def get_active_providers():
-    providers = db.collection('api_providers').where('is_active', '==', True).get()
-    return [p.to_dict() for p in providers]
+    update_cache_if_expired()
+    return CACHE_PROVIDERS if CACHE_PROVIDERS is not None else []
 
 def get_bot_settings():
-    settings_ref = db.collection('settings').document('config').get()
-    if settings_ref.exists:
-        data = settings_ref.to_dict()
-        if 'services' not in data: data['services'] = {}
-        if 'countries' not in data: data['countries'] = {}
-        if 'fake_otp_enabled' not in data: data['fake_otp_enabled'] = False
-        return data
-    else:
-        default_config = {
-            'otp_rate': 0.70, 'min_withdraw': 110.0,
-            'countries': {}, 'services': {}, 'fake_otp_enabled': False
-        }
-        db.collection('settings').document('config').set(default_config)
-        return default_config
+    update_cache_if_expired()
+    return CACHE_SETTINGS if CACHE_SETTINGS is not None else {'otp_rate': 0.70, 'min_withdraw': 110.0, 'countries': {}, 'services': {}, 'fake_otp_enabled': False}
 
 def get_main_menu(user_id):
     keyboard = [["🎭 Number নিন", "💸 Balance"], ["💰 Withdraw", "🎁 My Referrals"], ["🧐 Support"]]
@@ -105,10 +131,6 @@ def get_admin_menu():
 
 def get_inline_cancel():
     return InlineKeyboardMarkup([[InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")]])
-
-def escape_markdown_v2(text):
-    escape_chars = r'_*[]()~`>#+-=|{}.!'
-    return ''.join('\\' + c if c in escape_chars else c for c in text)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -149,11 +171,13 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if action == 'set_rate':
             try:
                 db.collection('settings').document('config').update({'otp_rate': float(text)})
+                update_cache_if_expired(force=True)
                 await update.message.reply_text(f"✅ ওটিপি রেট সফলভাবে `{text} BDT` করা হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
         elif action == 'set_min_w':
             try:
                 db.collection('settings').document('config').update({'min_withdraw': float(text)})
+                update_cache_if_expired(force=True)
                 await update.message.reply_text(f"✅ মিনিমাম উইথড্র `{text} BDT` করা হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
         elif action == 'add_service':
@@ -164,6 +188,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 services_dict = config.get('services', {})
                 services_dict[service_name] = service_code
                 db.collection('settings').document('config').update({'services': services_dict})
+                update_cache_if_expired(force=True)
                 await update.message.reply_text(f"✅ সার্ভিস সফলভাবে যুক্ত হয়েছে: **{service_name}**")
             except: await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে।")
         elif action == 'add_country_input':
@@ -183,6 +208,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                         
                     countries_dict[srv_target][c_name] = {"code": c_code.lower(), "flag": premium_flag}
                     db.collection('settings').document('config').update({'countries': countries_dict})
+                    update_cache_if_expired(force=True)
                     await update.message.reply_text(f"✅ {srv_target} সার্ভিসের ভেতরে দেশ সফলভাবে যুক্ত হয়েছে: {premium_flag} {c_name} (Range: {c_code})")
                 else:
                     await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Ivory Coast 225079`")
@@ -235,6 +261,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             db.collection('api_providers').document(prov_id).set({
                 'id': prov_id, 'name': api_name, 'api_key': api_key, 'base_url': base_url, 'is_active': False
             })
+            update_cache_if_expired(force=True)
             await update.message.reply_text(f"✅ **{api_name}** এপিআই সফলভাবে যুক্ত হয়েছে!")
             
         elif action == 'user_info_search':
@@ -252,7 +279,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if tgt_user:
                 ud = tgt_user.to_dict()
                 context.user_data['managed_user_id'] = str(ud['id'])
-                ref_count = len(ud.get('referrals', []))
                 kbd = [
                     [InlineKeyboardButton("➕ ব্যালেন্স অ্যাড", callback_data="u_action_addbal"), InlineKeyboardButton("➖ ব্যালেন্স কাট", callback_data="u_action_cutbal")],
                     [InlineKeyboardButton("🚫 ব্যান করুন", callback_data="u_action_ban"), InlineKeyboardButton("🔓 আনব্যান করুন", callback_data="u_action_unban")],
@@ -390,13 +416,11 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard = []
         has_country = False
         
-        # সব সার্ভিসের ভেতর ঘুরে সব দেশকে খুঁজে বের করা হচ্ছে
         for srv_name, srv_countries in countries.items():
             if isinstance(srv_countries, dict):
                 for c_name, c_data in srv_countries.items():
                     has_country = True
                     flag = c_data.get('flag', '🏳️')
-                    # ইউনিক কী বানানোর জন্য আমরা বোট ডেটাতে আইডি সেভ করবো
                     callback_id = f"rc_{srv_name.replace(' ', '__')}_{c_name.replace(' ', '__')}"
                     keyboard.append([InlineKeyboardButton(f"🗑️ [{srv_name}] {flag} {c_name}", callback_data=callback_id)])
         
@@ -416,6 +440,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         current_status = config.get('fake_otp_enabled', False)
         new_status = not current_status
         db.collection('settings').document('config').update({'fake_otp_enabled': new_status})
+        update_cache_if_expired(force=True)
         status_text = "চালু 🟢" if new_status else "বন্ধ 🔴"
         await update.message.reply_text(f"📢 ফেক ওটিপি লুপটি সফলভাবে **{status_text}** করা হয়েছে।", reply_markup=get_admin_menu())
 
@@ -643,7 +668,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
 
-    # ফিক্সড কান্ট্রি রিমুভার লজিক (যা নিখুঁতভাবে কাজ করবে)
     if data.startswith("rc_"):
         await query.answer()
         parts = data.split("_")
@@ -655,11 +679,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if srv_name in countries and c_name in countries[srv_name]:
             del countries[srv_name][c_name]
-            # যদি ঐ সার্ভিসের ভেতরে আর কোনো দেশ না থাকে তবে ফাঁকা ডিকশনারিটি মুছে ফেলি
             if not countries[srv_name]:
                 del countries[srv_name]
                 
             db.collection('settings').document('config').update({'countries': countries})
+            update_cache_if_expired(force=True)
             await query.edit_message_text(f"✅ **{srv_name}** সার্ভিস থেকে **{c_name}** দেশটি সফলভাবে রিমুভ করা হয়েছে।")
         else:
             await query.edit_message_text("❌ দেশটি পাওয়া যায়নি বা ইতিমধ্যে রিমুভ হয়েছে।")
@@ -685,11 +709,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if api_doc.exists:
             current_status = api_doc.to_dict().get('is_active', False)
             api_ref.update({'is_active': not current_status})
+        update_cache_if_expired(force=True)
         await query.edit_message_text("✅ এপিআই প্রোভাইডারের সক্রিয়তা স্ট্যাটাস পরিবর্তিত হয়েছে।")
     elif data.startswith("del_api_"):
         await query.answer()
         api_id = data.split("_")[2]
         db.collection('api_providers').document(api_id).delete()
+        update_cache_if_expired(force=True)
         await query.edit_message_text("🗑️ এপিআই প্রোভাইডার সফলভাবে রিমুভ করা হয়েছে।")
     elif data == "add_new_api":
         await query.answer()
@@ -703,6 +729,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if s_name in services:
             del services[s_name]
             db.collection('settings').document('config').update({'services': services})
+            update_cache_if_expired(force=True)
             await query.edit_message_text(f"✅ **{s_name}** সার্ভিসটি সফলভাবে রিমুভ করা হয়েছে।")
     elif data.startswith("add_c_srv_"):
         await query.answer()
@@ -768,15 +795,23 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.collection('excel_numbers').document(number).update({'status': 'active', 'user_id': user_id})
         else:
             active_apis = get_active_providers()
-            for active_api in active_apis:
-                try:
-                    api_res = requests.post(f"{active_api['base_url']}/getnum", headers={"mauthapi": active_api['api_key']}, json={"rid": c_code}, timeout=5).json()
-                    if api_res.get('meta', {}).get('code') == 200:
-                        number = api_res['data']['full_number']
-                        source_type = 'api'
-                        provider_id_used = active_api['id']
-                        break
-                except: continue
+            # অ্যাসিঙ্ক অসিনক্রোনাস কলিং
+            async with httpx.AsyncClient() as client:
+                for active_api in active_apis:
+                    try:
+                        api_res = await client.post(
+                            f"{active_api['base_url']}/getnum", 
+                            headers={"mauthapi": active_api['api_key']}, 
+                            json={"rid": c_code}, 
+                            timeout=4.0
+                        )
+                        res_json = api_res.json()
+                        if res_json.get('meta', {}).get('code') == 200:
+                            number = res_json['data']['full_number']
+                            source_type = 'api'
+                            provider_id_used = active_api['id']
+                            break
+                    except: continue
                 
         if number:
             db.collection('orders').document(str(number)).set({
@@ -789,9 +824,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             
             action_buttons = [
-                [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
-                [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
-                [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
+                [InlineKeyboardButton(text=f" 📋 {number}", copy_text={"text": str(number)})],
                 [
                     InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
                     InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")
@@ -884,94 +917,95 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     active_apis = get_active_providers()
     if not active_apis: return
     
-    for active_api in active_apis:
-        url = f"{active_api['base_url']}/success-otp"
-        try:
-            data = requests.get(url, headers={"mauthapi": active_api['api_key']}, timeout=5).json()
-            if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
-                config = get_bot_settings()
-                otp_rate = config.get('otp_rate', 0.70)
-                bot_username = (await context.bot.get_me()).username
+    async with httpx.AsyncClient() as client:
+        for active_api in active_apis:
+            url = f"{active_api['base_url']}/success-otp"
+            try:
+                # নন-ব্লকিং অসিনক্রোনাস রিকোয়েস্ট উইথ ৪ সেকেন্ড ফিক্সড টাইমআউট
+                response = await client.get(url, headers={"mauthapi": active_api['api_key']}, timeout=4.0)
+                data = response.json()
                 
-                for latest_otp in data['data']['otps']:
-                    number = str(latest_otp['number'])
-                    if not number.startswith("+"): number = "+" + number
-                    # ওটিপি ডুপ্লিকেট চেক (একই ওটিপি বারবার আসা বন্ধ করবে)
-                    otp_id = f"proc_{number}_{latest_otp.get('id', hash(latest_otp.get('message', '')))}"
-                    # প্রথমে লোকাল মেমোরি সেট চেক করবে (কোনো ফায়ারবেস রিড হবে না)
-                    if otp_id in LOCAL_PROCESSED_OTPS: 
-                        continue    
+                if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
+                    config = get_bot_settings()
+                    otp_rate = config.get('otp_rate', 0.70)
+                    bot_username = (await context.bot.get_me()).username
                     
-                    # যদি লোকাল সেটে না থাকে, তবে ফায়ারবেস থেকে চেক করবে
-                    if db.collection('processed_otps').document(otp_id).get().exists: 
-                        LOCAL_PROCESSED_OTPS.add(otp_id) # সেটে সেভ করে নিল যাতে পরেরবার ফায়ারবেস টাচ না করে
-                        continue
-                    order_ref = db.collection('orders').document(number)
-                    order = order_ref.get()
-                    
-                    if order.exists and order.to_dict().get('status') == 'active':
-                        order_data = order.to_dict()
+                    for latest_otp in data['data']['otps']:
+                        number = str(latest_otp['number'])
+                        if not number.startswith("+"): number = "+" + number
                         
-                        if order_data.get('source') == 'api' and order_data.get('provider_id') != active_api['id']:
+                        otp_id = f"proc_{number}_{latest_otp.get('id', hash(latest_otp.get('message', '')))}"
+                        if otp_id in LOCAL_PROCESSED_OTPS: 
+                            continue    
+                        
+                        if db.collection('processed_otps').document(otp_id).get().exists: 
+                            LOCAL_PROCESSED_OTPS.add(otp_id)
                             continue
+                        order_ref = db.collection('orders').document(number)
+                        order = order_ref.get()
+                        
+                        if order.exists and order.to_dict().get('status') == 'active':
+                            order_data = order.to_dict()
                             
-                        user_id = order_data['user_id']
-                        service_name = order_data.get('service_name', 'Facebook')
-                        country_name = order_data.get('country_name', 'Ivory Coast')
-                        clean_otp = "".join(re.findall(r'\d+', str(latest_otp['message'])))
-                        
-                        user_ref = db.collection('users').document(str(user_id))
-                        user_data = user_ref.get().to_dict() or {}
-                        
-                        cur_bal = user_data.get('balance', 0.0) + otp_rate
-                        cur_inc = user_data.get('total_income', 0.0) + otp_rate
-                        
-                        user_ref.update({
-                            'balance': cur_bal, 
-                            'total_income': cur_inc,
-                            'total_otp': user_data.get('total_otp', 0) + 1
-                        })
+                            if order_data.get('source') == 'api' and order_data.get('provider_id') != active_api['id']:
+                                continue
+                                
+                            user_id = order_data['user_id']
+                            service_name = order_data.get('service_name', 'Facebook')
+                            country_name = order_data.get('country_name', 'Ivory Coast')
+                            clean_otp = "".join(re.findall(r'\d+', str(latest_otp['message'])))
+                            
+                            user_ref = db.collection('users').document(str(user_id))
+                            user_data = user_ref.get().to_dict() or {}
+                            
+                            cur_bal = user_data.get('balance', 0.0) + otp_rate
+                            cur_inc = user_data.get('total_income', 0.0) + otp_rate
+                            
+                            user_ref.update({
+                                'balance': cur_bal, 
+                                'total_income': cur_inc,
+                                'total_otp': user_data.get('total_otp', 0) + 1
+                            })
 
-
-                        db.collection('processed_otps').document(otp_id).set({'timestamp': datetime.utcnow()})
-                        referrer_id = user_data.get('referred_by')
-                        if referrer_id:
-                            ref_user_ref = db.collection('users').document(str(referrer_id))
-                            if ref_user_ref.get().exists:
-                                ref_ud = ref_user_ref.get().to_dict()
-                                ref_user_ref.update({
-                                    'balance': ref_ud.get('balance', 0.0) + 0.10,
-                                    'total_income': ref_ud.get('total_income', 0.0) + 0.10
+                            db.collection('processed_otps').document(otp_id).set({'timestamp': datetime.utcnow()})
+                            referrer_id = user_data.get('referred_by')
+                            if referrer_id:
+                                db.collection('users').document(str(referrer_id)).update({
+                                    'balance': firestore.Increment(0.10),
+                                    'total_income': firestore.Increment(0.10)
                                 })
 
-                        masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
-                        balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
-                        add_part = f"+{otp_rate:.2f} BDT"
-                        space_count = max(1, 45 - (len(balance_part) + len(add_part)))
-                        spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
+                            masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
+                            balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
+                            add_part = f"+{otp_rate:.2f} BDT"
+                            space_count = max(1, 45 - (len(balance_part) + len(add_part)))
+                            spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
 
-                        success_msg = (
-                            f"✨ **Now OTP**\n"
-                            f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                            f"📱 Number: {masked_number}\n"
-                            f"🌍 Country: {country_name}\n"
-                            f"🎯 Service: {service_name}\n"
-                            f"👤 User: {user_data.get('name', 'User')}\n"
-                            f"{spaced_line}\n\n"
-                            f" Otp Code : `{clean_otp}`\n\n"
-                            f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                            f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
-                        )
-                        
-                        group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
-                        
-                        await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
-                        await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
-                        
-                        order_ref.update({'status': 'completed'})
-                        if order_data.get('source') == 'excel':
-                            db.collection('excel_numbers').document(number).update({'status': 'used'})
-        except: pass
+                            success_msg = (
+                                f"✨ **Now OTP**\n"
+                                f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
+                                f"📱 Number: {masked_number}\n"
+                                f"🌍 Country: {country_name}\n"
+                                f"🎯 Service: {service_name}\n"
+                                f"👤 User: {user_data.get('name', 'User')}\n"
+                                f"{spaced_line}\n\n"
+                                f" Otp Code : `{clean_otp}`\n\n"
+                                f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
+                                f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
+                            )
+                            
+                            group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
+                            
+                            try:
+                                await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
+                                await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
+                            except Exception as e:
+                                logger.error(f"Error sending message: {e}")
+                            
+                            order_ref.update({'status': 'completed'})
+                            if order_data.get('source') == 'excel':
+                                db.collection('excel_numbers').document(number).update({'status': 'used'})
+            except: pass
 
 async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     config = get_bot_settings()
@@ -1025,18 +1059,27 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=OTP_GROUP_ID, text=fake_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
     except: pass
 
+# Render Liveness checking এর জন্য HEAD মেথড হ্যান্ডলার ও স্ট্যাটাস ২০০ রেসপন্স ফিক্সড করা হয়েছে
 class RenderServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
         self.wfile.write(b"Bot Engine Core Online")
+        
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
 
 def run_built_in_server():
     port = int(os.environ.get("PORT", 10000))
     HTTPServer(('0.0.0.0', port), RenderServer).serve_forever()
 
 def main():
+    # প্রথমবার চালুর সময় গ্লোবাল ক্যাশ লোড করা
+    update_cache_if_expired(force=True)
+    
     threading.Thread(target=run_built_in_server, daemon=True).start()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
