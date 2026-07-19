@@ -1,4 +1,4 @@
-import logging
+Import logging
 import os
 import json
 import asyncio
@@ -81,13 +81,8 @@ def get_bot_settings():
         return default_config
 
 def get_main_menu(user_id):
-    keyboard = [
-        ["🎭 Number নিন", "💸 Balance"], 
-        ["💰 Withdraw", "🎁 My Referrals"], 
-        ["🧐 Support"]
-    ]
-    if user_id == ADMIN_ID: 
-        keyboard.append(["👑 Admin Panel"])
+    keyboard = [["🎭 Number নিন", "💸 Balance"], ["💰 Withdraw", "🎁 My Referrals"], ["🧐 Support"]]
+    if user_id == ADMIN_ID: keyboard.append(["👑 Admin Panel"])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_admin_menu():
@@ -106,7 +101,7 @@ def get_admin_menu():
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_inline_cancel():
-    return InlineKeyboardMarkup(InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action"))
+    return InlineKeyboardMarkup([[InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")]])
 
 def escape_markdown_v2(text):
     escape_chars = r'_*[]()~`>#+-=|{}.!'
@@ -898,10 +893,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                 for latest_otp in data['data']['otps']:
                     number = str(latest_otp['number'])
                     if not number.startswith("+"): number = "+" + number
-
-                    # ওটিপি ডুপ্লিকেট চেক (একই ওটিপি বারবার আসা বন্ধ করবে)
-                    otp_id = f"proc_{number}_{latest_otp.get('id', hash(latest_otp.get('message', '')))}"
-                    if db.collection('processed_otps').document(otp_id).get().exists: continue
+                        
                     order_ref = db.collection('orders').document(number)
                     order = order_ref.get()
                     
@@ -927,8 +919,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             'total_income': cur_inc,
                             'total_otp': user_data.get('total_otp', 0) + 1
                         })
-                        db.collection('processed_otps').document(otp_id).set({'timestamp': datetime.utcnow()})
-                    
+                        
                         referrer_id = user_data.get('referred_by')
                         if referrer_id:
                             ref_user_ref = db.collection('users').document(str(referrer_id))
@@ -958,7 +949,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
                         )
                         
-                        group_buttons = InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)
+                        group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
                         
                         await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
                         await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
@@ -1015,7 +1006,7 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
         f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
     )
-    group_buttons = InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)
+    group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
     try: 
         await context.bot.send_message(chat_id=OTP_GROUP_ID, text=fake_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
     except: pass
@@ -1036,7 +1027,7 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
-    app.job_queue.run_repeating(fake_otp_generator, interval=20, first=10)
+    app.job_queue.run_repeating(fake_otp_generator, interval=10, first=10)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callback_handler))
