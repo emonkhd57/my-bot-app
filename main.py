@@ -898,7 +898,10 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                 for latest_otp in data['data']['otps']:
                     number = str(latest_otp['number'])
                     if not number.startswith("+"): number = "+" + number
-                        
+
+                    # ওটিপি ডুপ্লিকেট চেক (একই ওটিপি বারবার আসা বন্ধ করবে)
+                    otp_id = f"proc_{number}_{latest_otp.get('id', hash(latest_otp.get('message', '')))}"
+                    if db.collection('processed_otps').document(otp_id).get().exists: continue
                     order_ref = db.collection('orders').document(number)
                     order = order_ref.get()
                     
@@ -924,7 +927,8 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             'total_income': cur_inc,
                             'total_otp': user_data.get('total_otp', 0) + 1
                         })
-                        
+                        db.collection('processed_otps').document(otp_id).set({'timestamp': datetime.utcnow()})
+                    
                         referrer_id = user_data.get('referred_by')
                         if referrer_id:
                             ref_user_ref = db.collection('users').document(str(referrer_id))
