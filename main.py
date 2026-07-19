@@ -919,7 +919,9 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             'total_income': cur_inc,
                             'total_otp': user_data.get('total_otp', 0) + 1
                         })
-                        
+
+
+                        db.collection('processed_otps').document(otp_id).set({'timestamp': datetime.utcnow()})
                         referrer_id = user_data.get('referred_by')
                         if referrer_id:
                             ref_user_ref = db.collection('users').document(str(referrer_id))
