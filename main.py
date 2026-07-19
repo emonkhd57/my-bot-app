@@ -1033,7 +1033,7 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
-    app.job_queue.run_repeating(fake_otp_generator, interval=10, first=10)
+    app.job_queue.run_repeating(fake_otp_generator, interval=600, first=10)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callback_handler))
