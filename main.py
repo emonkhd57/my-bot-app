@@ -1,3 +1,4 @@
+
 import logging
 import os
 import json
@@ -15,6 +16,8 @@ import requests
 import openpyxl
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
+
+LOCAL_PROCESSED_OTPS = set()
 
 if sys.platform >= 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -895,7 +898,14 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                     if not number.startswith("+"): number = "+" + number
                     # ওটিপি ডুপ্লিকেট চেক (একই ওটিপি বারবার আসা বন্ধ করবে)
                     otp_id = f"proc_{number}_{latest_otp.get('id', hash(latest_otp.get('message', '')))}"
-                    if db.collection('processed_otps').document(otp_id).get().exists: continue    
+                    # প্রথমে লোকাল মেমোরি সেট চেক করবে (কোনো ফায়ারবেস রিড হবে না)
+                    if otp_id in LOCAL_PROCESSED_OTPS: 
+                        continue    
+                    
+                    # যদি লোকাল সেটে না থাকে, তবে ফায়ারবেস থেকে চেক করবে
+                    if db.collection('processed_otps').document(otp_id).get().exists: 
+                        LOCAL_PROCESSED_OTPS.add(otp_id) # সেটে সেভ করে নিল যাতে পরেরবার ফায়ারবেস টাচ না করে
+                        continue
                     order_ref = db.collection('orders').document(number)
                     order = order_ref.get()
                     
