@@ -38,7 +38,7 @@ def get_premium_flag(name):
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
 ADMIN_ID = int(os.getenv('ADMIN_ID'))
 OTP_GROUP_ID = "-1003656135640"
-OTP_GROUP_URL = "https://t.me/emotp100"       
+OTP_GROUP_URL = "https://t.me/emsms10"       
 MAIN_CHANNEL_URL = "https://t.me/helptg100"   
 
 if not firebase_admin._apps:
@@ -81,7 +81,7 @@ def get_bot_settings():
         return default_config
 
 def get_main_menu(user_id):
-    keyboard = [["🎭 Number নিন", "💸 Balance"], ["💰 Withdraw", "🎁 My Referrals"], ["🧐 Support"]]
+    keyboard = "🎭 Number নিন", "💸 Balance"], ["💰 Withdraw", "🎁 My Referrals"], ["🧐 Support"
     if user_id == ADMIN_ID: keyboard.append(["👑 Admin Panel"])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -101,7 +101,7 @@ def get_admin_menu():
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_inline_cancel():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")]])
+    return InlineKeyboardMarkup(InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action"))
 
 def escape_markdown_v2(text):
     escape_chars = r'_*[]()~`>#+-=|{}.!'
@@ -740,7 +740,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await query.edit_message_text("⚡ **একটি সার্ভিস সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
         
-    elif data.startswith("usr_c_"):
+    elif data.startswith("usr_c_") or data.startswith("change_num_"):
         await query.answer()
         parts = data.split("_")
         c_code = parts[2]
@@ -791,7 +791,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
                 [
                     InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
-                    InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"usr_c_{c_code}_{c_name.replace(' ', '__')}")
+                    InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")
                 ],
                 [
                     InlineKeyboardButton("🚫 বাতিল করুন", callback_data="cancel_action")
@@ -878,14 +878,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
-    active_apis = [
-        {
-            'id': 'my_sms_provider',
-            'name': 'SMS Provider Name',
-            'base_url': 'https://api.example.com/api', # তোমার আসল এপিআই ইউআরএল
-            'api_key': 'YOUR_ACTUAL_API_KEY' # তোমার আসল এপিআই কী
-        }
-    ]
+    active_apis = get_active_providers()
+    if not active_apis: return
     
     for active_api in active_apis:
         url = f"{active_api['base_url']}/success-otp"
@@ -955,7 +949,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
                         )
                         
-                        group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
+                        group_buttons = InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)
                         
                         await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
                         await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
@@ -1012,7 +1006,7 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
         f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
     )
-    group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
+    group_buttons = InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)
     try: 
         await context.bot.send_message(chat_id=OTP_GROUP_ID, text=fake_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
     except: pass
