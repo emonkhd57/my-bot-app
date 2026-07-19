@@ -740,7 +740,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
         await query.edit_message_text("⚡ **একটি সার্ভিস সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
         
-    elif data.startswith("usr_c_") or data.startswith("change_num_"):
+    elif data.startswith("usr_c_"):
         await query.answer()
         parts = data.split("_")
         c_code = parts[2]
@@ -791,7 +791,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
                 [
                     InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
-                    InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")
+                    InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"usr_c_{c_code}_{c_name.replace(' ', '__')}")
                 ],
                 [
                     InlineKeyboardButton("🚫 বাতিল করুন", callback_data="cancel_action")
