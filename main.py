@@ -878,8 +878,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
-    active_apis = get_active_providers()
-    if not active_apis: return
+    active_apis = [
+        {
+            'id': 'my_sms_provider',
+            'name': 'SMS Provider Name',
+            'base_url': 'https://api.example.com/api', # তোমার আসল এপিআই ইউআরএল
+            'api_key': 'YOUR_ACTUAL_API_KEY' # তোমার আসল এপিআই কী
+        }
+    ]
     
     for active_api in active_apis:
         url = f"{active_api['base_url']}/success-otp"
