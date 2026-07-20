@@ -60,8 +60,9 @@ def get_service_emoji(service_name):
     elif "twitter" in srv or "x" in srv: return "🐦"
     else: return "🎯"
 
+# ক্যাশিং মেকানিজম বা অপ্টিমাইজড ফাংশন যাতে বারবার ডাটাবেজ হিট না হয়
 def get_active_providers():
-    providers = db.collection('api_providers').where('is_active', '==', True).limit(20).get()
+    providers = db.collection('api_providers').where('is_active', '==', True).get()
     return [p.to_dict() for p in providers]
 
 def get_bot_settings():
@@ -130,7 +131,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ দুঃখিত, আপনাকে এই বোট থেকে ব্যান করা হয়েছে।")
             return
     
-    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম።\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
+    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম।\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
     await update.message.reply_text(text, reply_markup=get_main_menu(user_id))
 
 async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -333,7 +334,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 
                 success_submit = (
                     "✅ **আপনার উইথড্র আবেদনটি সফলভাবে জমা হয়েছে!**\n\n"
-                    "⚡ আগামী ৫ থেকে ৭ ঘণ্টার ভিতরে আপনার ওয়ালেটে পেমেন্ট পৌঁছে যাবে।\n\n"
+                    "⚡ আগামী ৫ থেকে ৭ ঘণ্টার ভিতরে আপনার ওয়ালেটে পেমেন্ট পৌঁছে যাবে።\n\n"
                     "✨ আমাদের সাথে থাকার জন্য ধন্যবাদ! ✨"
                 )
                 await update.message.reply_text(success_submit)
@@ -871,14 +872,26 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['usr_action'] = None
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
+# অপ্টিমাইজড ওটিপি চেকার ব্যাকগ্রাউন্ড জব (অতিরিক্ত রিড কমানো হয়েছে)
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
+    # একসাথে একটিভ অর্ডারগুলো আগে কুয়েরি করে নেওয়া হচ্ছে, যেন বারবার ডাটাবেজ হিট না হয়
+    active_orders_stream = db.collection('orders').where('status', '==', 'active').stream()
+    active_orders = {doc.id: doc.to_dict() for doc in active_orders_stream}
+    
+    if not active_orders:
+        return  # কোনো active অর্ডার না থাকলে এপিআই কল করার দরকার নেই (অতিরিক্ত রিড বাঁচবে)
+
     active_apis = get_active_providers()
-    if not active_apis: return
+    if not active_apis: 
+        return
     
     for active_api in active_apis:
         url = f"{active_api['base_url']}/success-otp"
         try:
-            data = requests.get(url, headers={"mauthapi": active_api['api_key']}, timeout=5).json()
+            res = requests.get(url, headers={"mauthapi": active_api['api_key']}, timeout=5)
+            if res.status_code != 200:
+                continue
+            data = res.json()
             if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
                 config = get_bot_settings()
                 otp_rate = config.get('otp_rate', 0.70)
@@ -887,94 +900,97 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                 for latest_otp in data['data']['otps']:
                     number = str(latest_otp['number'])
                     if not number.startswith("+"): number = "+" + number
-                    otp_id = f"proc_{number}_{latest_otp.get('id', hash(latest_otp.get('message', '')))}"
-                    if db.collection('processed_otps').document(otp_id).get().exists: continue    
-                    order_ref = db.collection('orders').document(number)
-                    order = order_ref.get()
                     
-                    if order.exists and order.to_dict().get('status') == 'active':
-                        order_data = order.to_dict()
-                        
-                        if order_data.get('source') == 'api' and order_data.get('provider_id') != active_api['id']:
-                            continue
-                            
-                        user_id = order_data['user_id']
-                        service_name = order_data.get('service_name', 'Facebook')
-                        country_name = order_data.get('country_name', 'Ivory Coast')
-                        clean_otp = "".join(re.findall(r'\d+', str(latest_otp['message'])))
-                        
-                        user_ref = db.collection('users').document(str(user_id))
-                        user_data = user_ref.get().to_dict() or {}
-                        
-                        cur_bal = user_data.get('balance', 0.0) + otp_rate
-                        cur_inc = user_data.get('total_income', 0.0) + otp_rate
-                        
-                        user_ref.update({
-                            'balance': cur_bal, 
-                            'total_income': cur_inc,
-                            'total_otp': user_data.get('total_otp', 0) + 1
-                        })
+                    if number not in active_orders:
+                        continue  # মেমোরিতে থাকা ডিকশনারি দিয়ে চেক করা হচ্ছে, আলাদা ডাটাবেজ কল লাগবে না
 
-                        db.collection('processed_otps').document(otp_id).set({'timestamp': datetime.utcnow()})
-                        referrer_id = user_data.get('referred_by')
-                        if referrer_id:
-                            ref_user_ref = db.collection('users').document(str(referrer_id))
-                            if ref_user_ref.get().exists:
-                                ref_ud = ref_user_ref.get().to_dict()
-                                ref_user_ref.update({
-                                    'balance': ref_ud.get('balance', 0.0) + 0.10,
-                                    'total_income': ref_ud.get('total_income', 0.0) + 0.10
-                                })
-
-                        masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
-                        balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
-                        add_part = f"+{otp_rate:.2f} BDT"
-                        space_count = max(1, 45 - (len(balance_part) + len(add_part)))
-                        spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
-
-                        success_msg = (
-                            f"✨ **Now OTP**\n"
-                            f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                            f"📱 Number: {masked_number}\n"
-                            f"🌍 Country: {country_name}\n"
-                            f"🎯 Service: {service_name}\n"
-                            f"👤 User: {user_data.get('name', 'User')}\n"
-                            f"{spaced_line}\n\n"
-                            f" Otp Code : `{clean_otp}`\n\n"
-                            f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                            f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
-                        )
+                    order_data = active_orders[number]
+                    if order_data.get('source') == 'api' and order_data.get('provider_id') != active_api['id']:
+                        continue
                         
-                        group_buttons = [
-                            InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), 
-                            InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)
-                        ]
-                        
+                    otp_id = f"proc_{number}_{latest_otp.get('id', hash(latest_otp.get('message', '')))}"
+                    
+                    # প্রসেসড ওটিপি কি না চেক করা
+                    if db.collection('processed_otps').document(otp_id).get().exists: 
+                        continue    
+                    
+                    user_id = order_data['user_id']
+                    service_name = order_data.get('service_name', 'Facebook')
+                    country_name = order_data.get('country_name', 'Ivory Coast')
+                    clean_otp = "".join(re.findall(r'\d+', str(latest_otp['message'])))
+                    
+                    user_ref = db.collection('users').document(str(user_id))
+                    user_data = user_ref.get().to_dict() or {}
+                    
+                    cur_bal = user_data.get('balance', 0.0) + otp_rate
+                    cur_inc = user_data.get('total_income', 0.0) + otp_rate
+                    
+                    user_ref.update({
+                        'balance': cur_bal, 
+                        'total_income': cur_inc,
+                        'total_otp': user_data.get('total_otp', 0) + 1
+                    })
+
+                    db.collection('processed_otps').document(otp_id).set({'timestamp': datetime.utcnow()})
+                    
+                    referrer_id = user_data.get('referred_by')
+                    if referrer_id:
+                        ref_user_ref = db.collection('users').document(str(referrer_id))
+                        if ref_user_ref.get().exists:
+                            ref_ud = ref_user_ref.get().to_dict()
+                            ref_user_ref.update({
+                                'balance': ref_ud.get('balance', 0.0) + 0.10,
+                                'total_income': ref_ud.get('total_income', 0.0) + 0.10
+                            })
+
+                    masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
+                    balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
+                    add_part = f"+{otp_rate:.2f} BDT"
+                    space_count = max(1, 45 - (len(balance_part) + len(add_part)))
+                    spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
+
+                    success_msg = (
+                        f"✨ **Now OTP**\n"
+                        f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
+                        f"📱 Number: {masked_number}\n"
+                        f"🌍 Country: {country_name}\n"
+                        f"🎯 Service: {service_name}\n"
+                        f"👤 User: {user_data.get('name', 'User')}\n"
+                        f"{spaced_line}\n\n"
+                        f" Otp Code : `{clean_otp}`\n\n"
+                        f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
+                        f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
+                    )
+                    
+                    group_buttons = [
+                        InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), 
+                        InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)
+                    ]
+                    
+                    try:
                         await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
                         await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([group_buttons]))
-                        
-                        # সফল ওটিপি আসার পর অর্ডার এবং এক্সেল নাম্বার ডাটাবেজ থেকে মুছে ফেলা (Clean up)
-                        order_ref.delete()
-                        if order_data.get('source') == 'excel':
-                            db.collection('excel_numbers').document(number).delete()
-        except: pass
+                    except: 
+                        pass
+                    
+                    # ডাটাবেজ থেকে অর্ডার ও এক্সেল নাম্বার ক্লিন আপ
+                    db.collection('orders').document(number).delete()
+                    if order_data.get('source') == 'excel':
+                        db.collection('excel_numbers').document(number).delete()
+        except: 
+            pass
 
 async def auto_cleanup_expired_numbers(context: ContextTypes.DEFAULT_TYPE):
     """নাম্বার নেওয়ার ১০ মিনিট পর কোনো ওটিপি না আসলে ডাটাবেজ থেকে অটো রিমুভ করার ব্যাকগ্রাউন্ড জব"""
     try:
         ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
-        
-        # orders কালেকশন থেকে active এবং ১০ মিনিটের পুরোনো অর্ডারগুলো কুয়েরি করা
         expired_orders = db.collection('orders').where('status', '==', 'active').where('timestamp', '<=', ten_minutes_ago).stream()
         
         for order in expired_orders:
             order_data = order.to_dict()
             number = order.id
-            
-            # orders থেকে ডিলিট করা
             db.collection('orders').document(number).delete()
             
-            # যদি নাম্বারটি এক্সেল থেকে নিয়ে থাকে, তবে এক্সেল কালেকশন থেকেও ডিলিট করে দেওয়া
             if order_data.get('source') == 'excel':
                 excel_doc_ref = db.collection('excel_numbers').document(number)
                 if excel_doc_ref.get().exists:
@@ -1053,7 +1069,7 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
-    app.job_queue.run_repeating(auto_cleanup_expired_numbers, interval=60, first=10) # প্রতি ১ মিনিটে চেক করে ১০ মিনিট পার হওয়া নাম্বার ক্লিন করবে
+    app.job_queue.run_repeating(auto_cleanup_expired_numbers, interval=60, first=10)
     app.job_queue.run_repeating(fake_otp_generator, interval=600, first=10)
     
     app.add_handler(CommandHandler("start", start))
