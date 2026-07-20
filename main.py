@@ -20,15 +20,17 @@ import threading
 
 # Logging setup
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logger = logging.getLogger(__name__)
 
+# 🔥 ZERO READ LOCAL CACHE
 LOCAL_PROCESSED_OTPS = set()
+LOCAL_ACTIVE_ORDERS = {}  # {number: order_data}
 
 # Global Cache Variables
 CACHE_SETTINGS = None
 CACHE_PROVIDERS = None
 LAST_CACHE_TIME = 0
-CACHE_DURATION = 300  # ৫ মিনিট ক্যাশ থাকবে
+CACHE_DURATION = 3600  # ১ ঘন্টা ক্যাশ থাকবে
 
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -74,7 +76,7 @@ def get_service_emoji(service_name):
     elif "twitter" in srv or "x" in srv: return "🐦"
     else: return "🎯"
 
-# 🔥 Firebase Read Optimized Cache Handler
+# 🔥 Firebase Zero-Read Cache Handler
 def update_cache_if_expired(force=False):
     global CACHE_SETTINGS, CACHE_PROVIDERS, LAST_CACHE_TIME
     current_time = time.time()
@@ -805,9 +807,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     except: continue
                 
         if number:
-            db.collection('orders').document(str(number)).set({
+            order_data = {
                 'user_id': user_id, 'status': 'active', 'country_name': c_name, 'service_name': s_name, 'source': source_type, 'provider_id': provider_id_used, 'timestamp': datetime.utcnow()
-            })
+            }
+            db.collection('orders').document(str(number)).set(order_data)
+            
+            # 🔥 RAM-এ অওর্ডার সেভ করে রাখা হলো (ফায়ারবেস রিড কমানোর জন্য)
+            LOCAL_ACTIVE_ORDERS[str(number)] = order_data
             
             num_box = (
                 f"{premium_flag} <b>{c_name} Allocated</b> ✅\n\n"
@@ -904,7 +910,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['usr_action'] = None
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
-# 🔥 OPTIMIZED REAL OTP CHECKER (Zero Read Bug Fixed)
+# 🔥 ABSOLUTE ZERO-READ OTP CHECKER 
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     active_apis = get_active_providers()
     if not active_apis: return
@@ -925,26 +931,25 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         number = str(latest_otp['number'])
                         if not number.startswith("+"): number = "+" + number
                         
-                        # 💥 MD5 Hash generation fix (কখনোই আইডি পরিবর্তন হবে না)
                         raw_msg = str(latest_otp.get('message', ''))
                         msg_hash = hashlib.md5(raw_msg.encode()).hexdigest()
                         otp_id = f"proc_{number}_{msg_hash}"
 
-                        # ১. লোকাল ক্যাশে থাকলে ১ বারও ফায়ারবেসে চেক যাবে না (০ রিড)
+                        # ১. লোকাল ক্যাশে প্রসেসড থাকলে ১ বারও ডাটাবেজ টাচ করবে না (0 Read)
                         if otp_id in LOCAL_PROCESSED_OTPS: 
                             continue    
+
+                        # ২. লোকাল এক্টিভ অর্ডারে চেক করা হচ্ছে (0 Read database call)
+                        order_data = LOCAL_ACTIVE_ORDERS.get(number)
                         
-                        # ২. লোকাল ক্যাশে না থাকলে ফায়ারবেসে ১ বার চেক করবে এবং সাথে সাথে লোকাল ক্যাশে অ্যাড করে দেবে
-                        if db.collection('processed_otps').document(otp_id).get().exists: 
-                            LOCAL_PROCESSED_OTPS.add(otp_id)
-                            continue
-                            
-                        order_ref = db.collection('orders').document(number)
-                        order = order_ref.get()
+                        # যদি লোকাল মেমোরিতে না পাওয়া যায় তবে ফায়ারবেস থেকে ১ বার রিড করবে
+                        if not order_data:
+                            order_doc = db.collection('orders').document(number).get()
+                            if order_doc.exists:
+                                order_data = order_doc.to_dict()
+                                LOCAL_ACTIVE_ORDERS[number] = order_data
                         
-                        if order.exists and order.to_dict().get('status') == 'active':
-                            order_data = order.to_dict()
-                            
+                        if order_data and order_data.get('status') == 'active':
                             if order_data.get('source') == 'api' and order_data.get('provider_id') != active_api['id']:
                                 continue
                                 
@@ -965,6 +970,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                                 'total_otp': user_data.get('total_otp', 0) + 1
                             })
 
+                            # ফায়ারবেসে স্ট্যাটাস আপডেট
                             db.collection('processed_otps').document(otp_id).set({'timestamp': datetime.utcnow()})
                             LOCAL_PROCESSED_OTPS.add(otp_id)
 
@@ -1002,13 +1008,15 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             except Exception as e:
                                 logger.error(f"Error sending message: {e}")
                             
-                            order_ref.update({'status': 'completed'})
+                            db.collection('orders').document(number).update({'status': 'completed'})
+                            if number in LOCAL_ACTIVE_ORDERS:
+                                LOCAL_ACTIVE_ORDERS[number]['status'] = 'completed'
+
                             if order_data.get('source') == 'excel':
                                 db.collection('excel_numbers').document(number).update({'status': 'used'})
                             break
             except: pass
 
-# 🔥 OPTIMIZED DATABASE-FREE FAKE OTP GENERATOR
 async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     config = CACHE_SETTINGS or {}
     if not config.get('fake_otp_enabled', False): 
