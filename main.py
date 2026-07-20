@@ -7,6 +7,7 @@ import random
 import io
 import re
 import time
+import hashlib
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
@@ -461,7 +462,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard.append([InlineKeyboardButton("❌ ক্লোজ", callback_data="cancel_action")])
         await update.message.reply_text(msg_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         
-    # 🔥 OPTIMIZED EXCEL COUNT (১০০০০ রিড থেকে ১টি রিড)
     elif text == "📊 Excel Numbers" and user_id == ADMIN_ID:
         available_query = db.collection('excel_numbers').where('status', '==', 'available').count()
         active_query = db.collection('excel_numbers').where('status', '==', 'active').count()
@@ -481,7 +481,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ]
         await update.message.reply_text(xl_text, reply_markup=InlineKeyboardMarkup(kbd), parse_mode="Markdown")
 
-    # 🔥 OPTIMIZED TOP 10 USERS (১০,০০০ রিড থেকে ১০টি রিড)
     elif text == "📊 Top 10 OTP (24h)" and user_id == ADMIN_ID:
         top_users = db.collection('users').order_by('total_otp', direction=firestore.Query.DESCENDING).limit(10).get()
         if not top_users:
@@ -495,7 +494,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             board_text += f"{idx}. 👤 {u_name} | ID: `{ud.get('id')}` ➔ **{count} টি OTP**\n"
         await update.message.reply_text(board_text, parse_mode="Markdown")
 
-    # 🔥 OPTIMIZED ALL USER LIST (Pagination Limit)
     elif text == "👥 All User List" and user_id == ADMIN_ID:
         users = db.collection('users').limit(50).get()
         if not users:
@@ -906,7 +904,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['usr_action'] = None
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
-# 🔥 OPTIMIZED REAL OTP CHECKER
+# 🔥 OPTIMIZED REAL OTP CHECKER (Zero Read Bug Fixed)
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     active_apis = get_active_providers()
     if not active_apis: return
@@ -927,11 +925,16 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         number = str(latest_otp['number'])
                         if not number.startswith("+"): number = "+" + number
                         
-                        otp_id = f"proc_{number}_{latest_otp.get('id', hash(latest_otp.get('message', '')))}"
+                        # 💥 MD5 Hash generation fix (কখনোই আইডি পরিবর্তন হবে না)
+                        raw_msg = str(latest_otp.get('message', ''))
+                        msg_hash = hashlib.md5(raw_msg.encode()).hexdigest()
+                        otp_id = f"proc_{number}_{msg_hash}"
+
+                        # ১. লোকাল ক্যাশে থাকলে ১ বারও ফায়ারবেসে চেক যাবে না (০ রিড)
                         if otp_id in LOCAL_PROCESSED_OTPS: 
                             continue    
                         
-                        # Check Database Only If Local Cache Misses
+                        # ২. লোকাল ক্যাশে না থাকলে ফায়ারবেসে ১ বার চেক করবে এবং সাথে সাথে লোকাল ক্যাশে অ্যাড করে দেবে
                         if db.collection('processed_otps').document(otp_id).get().exists: 
                             LOCAL_PROCESSED_OTPS.add(otp_id)
                             continue
@@ -1005,9 +1008,8 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             break
             except: pass
 
-# 🔥 OPTIMIZED DATABASE-FREE FAKE OTP GENERATOR (একদম ১ বার যাবে, কোনো ৩০-৩০০ বার হবে না)
+# 🔥 OPTIMIZED DATABASE-FREE FAKE OTP GENERATOR
 async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
-    # গ্লোবাল ক্যাশ থেকে ফেক স্ট্যাটাস চেক (ডাটাবেজ রিড ০)
     config = CACHE_SETTINGS or {}
     if not config.get('fake_otp_enabled', False): 
         return
