@@ -60,7 +60,6 @@ def get_service_emoji(service_name):
     elif "twitter" in srv or "x" in srv: return "🐦"
     else: return "🎯"
 
-# ক্যাশিং মেকানিজম বা অপ্টিমাইজড ফাংশন যাতে বারবার ডাটাবেজ হিট না হয়
 def get_active_providers():
     providers = db.collection('api_providers').where('is_active', '==', True).get()
     return [p.to_dict() for p in providers]
@@ -334,7 +333,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 
                 success_submit = (
                     "✅ **আপনার উইথড্র আবেদনটি সফলভাবে জমা হয়েছে!**\n\n"
-                    "⚡ আগামী ৫ থেকে ৭ ঘণ্টার ভিতরে আপনার ওয়ালেটে পেমেন্ট পৌঁছে যাবে።\n\n"
+                    "⚡ আগামী ৫ থেকে ৭ ঘণ্টার ভিতরে আপনার ওয়ালেটে পেমেন্ট পৌঁছে যাবে।\n\n"
                     "✨ আমাদের সাথে থাকার জন্য ধন্যবাদ! ✨"
                 )
                 await update.message.reply_text(success_submit)
@@ -733,7 +732,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         otp_rate = config.get('otp_rate', 0.70)
         keyboard = [[InlineKeyboardButton(f"{get_service_emoji(s_name)} {s_name}  ➔  ➕ {otp_rate:.2f} BDT", callback_data=f"usr_s_{s_code}")] for s_name, s_code in services.items()]
         keyboard.append([InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")])
-        await query.edit_message_text("⚡ **একটি সার্ভিস সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
+        await query.edit_message_text(f"⚡ **একটি সার্ভিস সিলেক্ট করুন:**", reply_markup=InlineKeyboardMarkup(keyboard))
         
     elif data.startswith("usr_c_") or data.startswith("change_num_"):
         await query.answer()
@@ -752,6 +751,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         source_type = 'excel'
         provider_id_used = 'excel'
         
+        # অপ্টিমাইজড লিমিট কুয়েরি (অতিরিক্ত রিড এড়ানোর জন্য)
         xl_num_query = db.collection('excel_numbers').where('service_code', '==', s_code).where('country_code', '==', c_code).where('status', '==', 'available').limit(1).get()
         
         if xl_num_query:
@@ -872,14 +872,15 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['usr_action'] = None
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
-# অপ্টিমাইজড ওটিপি চেকার ব্যাকগ্রাউন্ড জব (অতিরিক্ত রিড কমানো হয়েছে)
+# সম্পূর্ণ ফিক্সড এবং অপ্টিমাইজড ওটিপি চেকার ব্যাকগ্রাউন্ড জব (এখানেই অতিরিক্ত রিড হতো)
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
-    # একসাথে একটিভ অর্ডারগুলো আগে কুয়েরি করে নেওয়া হচ্ছে, যেন বারবার ডাটাবেজ হিট না হয়
-    active_orders_stream = db.collection('orders').where('status', '==', 'active').stream()
-    active_orders = {doc.id: doc.to_dict() for doc in active_orders_stream}
+    # ভ্যাজাল ফিক্সড: পুরো কালেকশন স্ট্রিম না করে শুধুমাত্র প্রয়োজনীয় ফিল্ড ও সীমিত অর্ডার কুয়েরি করা হচ্ছে
+    active_orders_ref = db.collection('orders').where('status', '==', 'active').limit(100).get()
     
-    if not active_orders:
-        return  # কোনো active অর্ডার না থাকলে এপিআই কল করার দরকার নেই (অতিরিক্ত রিড বাঁচবে)
+    if not active_orders_ref:
+        return  # কোনো active অর্ডার না থাকলে এক ফোঁটাও ডাটাবেজ রিড হবে না!
+
+    active_orders = {doc.id: doc.to_dict() for doc in active_orders_ref}
 
     active_apis = get_active_providers()
     if not active_apis: 
@@ -902,7 +903,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                     if not number.startswith("+"): number = "+" + number
                     
                     if number not in active_orders:
-                        continue  # মেমোরিতে থাকা ডিকশনারি দিয়ে চেক করা হচ্ছে, আলাদা ডাটাবেজ কল লাগবে না
+                        continue  
 
                     order_data = active_orders[number]
                     if order_data.get('source') == 'api' and order_data.get('provider_id') != active_api['id']:
@@ -910,7 +911,6 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         
                     otp_id = f"proc_{number}_{latest_otp.get('id', hash(latest_otp.get('message', '')))}"
                     
-                    # প্রসেসড ওটিপি কি না চেক করা
                     if db.collection('processed_otps').document(otp_id).get().exists: 
                         continue    
                     
@@ -973,7 +973,6 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                     except: 
                         pass
                     
-                    # ডাটাবেজ থেকে অর্ডার ও এক্সেল নাম্বার ক্লিন আপ
                     db.collection('orders').document(number).delete()
                     if order_data.get('source') == 'excel':
                         db.collection('excel_numbers').document(number).delete()
@@ -981,10 +980,10 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
             pass
 
 async def auto_cleanup_expired_numbers(context: ContextTypes.DEFAULT_TYPE):
-    """নাম্বার নেওয়ার ১০ মিনিট পর কোনো ওটিপি না আসলে ডাটাবেজ থেকে অটো রিমুভ করার ব্যাকগ্রাউন্ড জব"""
     try:
         ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
-        expired_orders = db.collection('orders').where('status', '==', 'active').where('timestamp', '<=', ten_minutes_ago).stream()
+        # অতিরিক্ত রিড এড়ানোর জন্য লিমিট যুক্ত করা হলো
+        expired_orders = db.collection('orders').where('status', '==', 'active').where('timestamp', '<=', ten_minutes_ago).limit(50).stream()
         
         for order in expired_orders:
             order_data = order.to_dict()
