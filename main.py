@@ -6,7 +6,7 @@ import sys
 import random
 import io
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import firebase_admin
@@ -103,10 +103,6 @@ def get_admin_menu():
 def get_inline_cancel():
     return InlineKeyboardMarkup([[InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")]])
 
-def escape_markdown_v2(text):
-    escape_chars = r'_*[]()~`>#+-=|{}.!'
-    return ''.join('\\' + c if c in escape_chars else c for c in text)
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username or "None"
@@ -134,7 +130,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ দুঃখিত, আপনাকে এই বোট থেকে ব্যান করা হয়েছে।")
             return
     
-    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম।\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
+    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম።\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
     await update.message.reply_text(text, reply_markup=get_main_menu(user_id))
 
 async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -249,7 +245,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if tgt_user:
                 ud = tgt_user.to_dict()
                 context.user_data['managed_user_id'] = str(ud['id'])
-                ref_count = len(ud.get('referrals', []))
                 kbd = [
                     [InlineKeyboardButton("➕ ব্যালেন্স অ্যাড", callback_data="u_action_addbal"), InlineKeyboardButton("➖ ব্যালেন্স কাট", callback_data="u_action_cutbal")],
                     [InlineKeyboardButton("🚫 ব্যান করুন", callback_data="u_action_ban"), InlineKeyboardButton("🔓 আনব্যান করুন", callback_data="u_action_unban")],
@@ -311,7 +306,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         context.user_data['w_num'] = match.group(1)
         context.user_data['usr_action'] = 'w_amount_input'
-        await update.message.reply_text("✍️ এবার কত টাকা উইথড্র করতে চান সেই সংখ্যাটি টাইপ করে পাঠান:", reply_markup=get_inline_cancel())
+        await update.message.reply_text("✍️ কত টাকা উইথড্র করতে চান সেই সংখ্যাটি টাইপ করে পাঠান:", reply_markup=get_inline_cancel())
         return
         
     elif user_action == 'w_amount_input':
@@ -359,7 +354,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("✍️ নতুন মিনিমাম উইথড্র লিমিট পাঠান:", reply_markup=get_inline_cancel())
     elif text == "⚙️ Add Service" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'add_service'
-        await update.message.reply_text("✍️ জাস্ট আপনার সার্ভিস এর নামটি লিখে পাঠান।\n\n✍️ যেমন: `Facebook`", reply_markup=get_inline_cancel())
+        await update.message.reply_text("✍️ জাস্ট আপনার সার্ভিস এর নামটি লিখে পাঠান。\n\n✍️ যেমন: `Facebook`", reply_markup=get_inline_cancel())
     elif text == "🗑️ Remove Service" and user_id == ADMIN_ID:
         config = get_bot_settings()
         services = config.get('services', {})
@@ -439,7 +434,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         xl_text = (
             f"📊 **Excel Numbers Control Panel**\n━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🟢 বিক্রয়ের জন্য রেডি নাম্বার: {available_count} টি\n"
-            f"⏳ ওটিপির জন্য ওয়েटिंग নাম্বার: {active_count} টি\n\n"
+            f"⏳ ওটিপির জন্য ওয়েটিং নাম্বার: {active_count} টি\n\n"
         )
         kbd = [
             [InlineKeyboardButton("📤 Upload Excel File", callback_data="xl_upload_init")],
@@ -479,11 +474,14 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 tg_username = "নাই"
             else:
                 tg_username = f"@{tg_username}"
+            
+            ref_count = len(ud.get('referrals', []))
                 
             list_text += (
                 f"{idx}. 📛 নাম: {ud.get('name', 'Unknown')}\n"
                 f"   🆔 ID: `{ud.get('id')}` | 🔗 TG: {tg_username}\n"
-                f"   ✅ OTP: {ud.get('total_otp', 0)} টি | 💰 Bal: {ud.get('balance', 0.0):.2f} BDT\n"
+                f"   💰 Bal: {ud.get('balance', 0.0):.2f} BDT | 👥 Ref: {ref_count} জন\n"
+                f"   ✅ Total OTP Received: {ud.get('total_otp', 0)} টি\n"
                 f"──────────────────────\n"
             )
             if len(list_text) > 3500:
@@ -702,7 +700,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         srv_name = data.split("_")[3]
         context.user_data['target_add_country_service'] = srv_name
         context.user_data['adm_action'] = 'add_country_input'
-        await query.edit_message_text(f"✍️ **{srv_name}** সার্ভিসের জন্য দেশের নাম ও প্রোভাইডার রেঞ্জ কোড স্পেস দিয়ে পাঠান।\n\n✍️ উদাহরণ: `Ivory Coast 225079`", reply_markup=get_inline_cancel())
+        await query.edit_message_text(f"✍️ **{srv_name}** সার্ভিসের জন্য দেশের নাম ও প্রোভাইডার রেঞ্জ কোড স্পেস দিয়ে পাঠান。\n\n✍️ উদাহরণ: `Ivory Coast 225079`", reply_markup=get_inline_cancel())
     elif data.startswith("usr_s_"):
         await query.answer()
         s_code = data.split("_")[2]
@@ -758,7 +756,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if xl_num_query:
             xl_doc = xl_num_query[0]
             number = xl_doc.id
-            db.collection('excel_numbers').document(number).update({'status': 'active', 'user_id': user_id})
+            db.collection('excel_numbers').document(number).update({'status': 'active', 'user_id': user_id, 'timestamp': datetime.utcnow()})
         else:
             active_apis = get_active_providers()
             for active_api in active_apis:
@@ -955,10 +953,34 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
                         await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([group_buttons]))
                         
-                        order_ref.update({'status': 'completed'})
+                        # সফল ওটিপি আসার পর অর্ডার এবং এক্সেল নাম্বার ডাটাবেজ থেকে মুছে ফেলা (Clean up)
+                        order_ref.delete()
                         if order_data.get('source') == 'excel':
-                            db.collection('excel_numbers').document(number).update({'status': 'used'})
+                            db.collection('excel_numbers').document(number).delete()
         except: pass
+
+async def auto_cleanup_expired_numbers(context: ContextTypes.DEFAULT_TYPE):
+    """নাম্বার নেওয়ার ১০ মিনিট পর কোনো ওটিপি না আসলে ডাটাবেজ থেকে অটো রিমুভ করার ব্যাকগ্রাউন্ড জব"""
+    try:
+        ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
+        
+        # orders কালেকশন থেকে active এবং ১০ মিনিটের পুরোনো অর্ডারগুলো কুয়েরি করা
+        expired_orders = db.collection('orders').where('status', '==', 'active').where('timestamp', '<=', ten_minutes_ago).stream()
+        
+        for order in expired_orders:
+            order_data = order.to_dict()
+            number = order.id
+            
+            # orders থেকে ডিলিট করা
+            db.collection('orders').document(number).delete()
+            
+            # যদি নাম্বারটি এক্সেল থেকে নিয়ে থাকে, তবে এক্সেল কালেকশন থেকেও ডিলিট করে দেওয়া
+            if order_data.get('source') == 'excel':
+                excel_doc_ref = db.collection('excel_numbers').document(number)
+                if excel_doc_ref.get().exists:
+                    excel_doc_ref.delete()
+    except Exception as e:
+        print(f"Error in auto_cleanup_expired_numbers: {e}")
 
 async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     config = get_bot_settings()
@@ -1031,6 +1053,7 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
+    app.job_queue.run_repeating(auto_cleanup_expired_numbers, interval=60, first=10) # প্রতি ১ মিনিটে চেক করে ১০ মিনিট পার হওয়া নাম্বার ক্লিন করবে
     app.job_queue.run_repeating(fake_otp_generator, interval=600, first=10)
     
     app.add_handler(CommandHandler("start", start))
