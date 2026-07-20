@@ -8,7 +8,7 @@ import io
 import re
 import time
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import firebase_admin
@@ -22,9 +22,10 @@ import threading
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# 🔥 ZERO READ LOCAL CACHE
+# 🔥 ZERO READ LOCAL CACHES (In-Memory RAM Caching)
 LOCAL_PROCESSED_OTPS = set()
 LOCAL_ACTIVE_ORDERS = {}  # {number: order_data}
+LOCAL_USER_CACHE = {}     # {user_id: user_data}
 
 # Global Cache Variables
 CACHE_SETTINGS = None
@@ -73,7 +74,7 @@ def get_service_emoji(service_name):
     elif "google" in srv or "gmail" in srv: return "📧"
     elif "tiktok" in srv: return "🎵"
     elif "instagram" in srv or "ig" in srv: return "📸"
-    elif "twitter" in srv: return "🐦"
+    elif "twitter" in srv or "x" in srv: return "🐦"
     else: return "🎯"
 
 # 🔥 Firebase Zero-Read Cache Handler
@@ -88,10 +89,9 @@ def update_cache_if_expired(force=False):
                 data = settings_ref.to_dict()
                 if 'services' not in data: data['services'] = {}
                 if 'countries' not in data: data['countries'] = {}
-                if 'refer_bonus' not in data: data['refer_bonus'] = 0.10
                 CACHE_SETTINGS = data
             else:
-                CACHE_SETTINGS = {'otp_rate': 0.70, 'min_withdraw': 110.0, 'refer_bonus': 0.10, 'countries': {}, 'services': {}}
+                CACHE_SETTINGS = {'otp_rate': 0.70, 'min_withdraw': 110.0, 'countries': {}, 'services': {}}
                 db.collection('settings').document('config').set(CACHE_SETTINGS)
             
             providers = db.collection('api_providers').where('is_active', '==', True).get()
@@ -108,7 +108,17 @@ def get_active_providers():
 
 def get_bot_settings():
     update_cache_if_expired()
-    return CACHE_SETTINGS if CACHE_SETTINGS is not None else {'otp_rate': 0.70, 'min_withdraw': 110.0, 'refer_bonus': 0.10, 'countries': {}, 'services': {}}
+    return CACHE_SETTINGS if CACHE_SETTINGS is not None else {'otp_rate': 0.70, 'min_withdraw': 110.0, 'countries': {}, 'services': {}}
+
+def get_user_from_cache_or_db(user_id_str):
+    if user_id_str in LOCAL_USER_CACHE:
+        return LOCAL_USER_CACHE[user_id_str]
+    doc = db.collection('users').document(user_id_str).get()
+    if doc.exists:
+        data = doc.to_dict()
+        LOCAL_USER_CACHE[user_id_str] = data
+        return data
+    return None
 
 def get_main_menu(user_id):
     keyboard = [["🎭 Number নিন", "💸 Balance"], ["💰 Withdraw", "🎁 My Referrals"], ["🧐 Support"]]
@@ -118,13 +128,12 @@ def get_main_menu(user_id):
 def get_admin_menu():
     keyboard = [
         ["💸 ওটিপি রেট", "⚙️ মিনিমাম উইথড্র"],
-        ["🎁 রেফার বোনাস", "👥 All User List"],
-        ["📨 Withdraw Request", "⚙️ Add Service"],
-        ["🗑️ Remove Service", "⚙️ Add Country"],
-        ["🗑️ Remove Country", "🔌 Manage APIs"],
-        ["👤 User Information", "📊 Top 10 OTP (24h)"],
-        ["📊 Excel Numbers", "📢 ব্রডকাস্ট"],
-        ["🔙 মেইন মেনু"]
+        ["👥 All User List", "📨 Withdraw Request"],
+        ["⚙️ Add Service", "🗑️ Remove Service"],
+        ["⚙️ Add Country", "🗑️ Remove Country"],
+        ["🔌 Manage APIs", "👤 User Information"],
+        ["📊 Top 10 OTP (24h)", "📊 Excel Numbers"],
+        ["📢 ব্রডকাস্ট", "🔙 মেইন মেনু"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -133,6 +142,7 @@ def get_inline_cancel():
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    user_id_str = str(user_id)
     username = update.effective_user.username or "None"
     first_name = update.effective_user.first_name or "Unknown"
     args = context.args
@@ -141,20 +151,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if args and args[0].isdigit() and int(args[0]) != user_id:
         referrer = args[0]
 
-    user_ref = db.collection('users').document(str(user_id))
-    user_doc = user_ref.get()
+    user_ref = db.collection('users').document(user_id_str)
+    user_data = get_user_from_cache_or_db(user_id_str)
     
-    if not user_doc.exists:
-        user_ref.set({
+    if not user_data:
+        new_data = {
             'id': user_id, 'name': first_name, 'username': username,
             'balance': 0.0, 'pending_withdraw': 0.0, 'total_income': 0.0, 'total_otp': 0, 
             'referred_by': referrer, 'is_banned': False, 'referrals': []
-        })
+        }
+        user_ref.set(new_data)
+        LOCAL_USER_CACHE[user_id_str] = new_data
         if referrer:
-            db.collection('users').document(str(referrer)).update({'referrals': firestore.ArrayUnion([str(user_id)])})
+            db.collection('users').document(str(referrer)).update({'referrals': firestore.ArrayUnion([user_id_str])})
+            if str(referrer) in LOCAL_USER_CACHE:
+                LOCAL_USER_CACHE[str(referrer)].setdefault('referrals', []).append(user_id_str)
     else:
         user_ref.update({'username': username, 'name': first_name})
-        if user_doc.to_dict().get('is_banned', False):
+        user_data['username'] = username
+        user_data['name'] = first_name
+        if user_data.get('is_banned', False):
             await update.message.reply_text("❌ দুঃখিত, আপনাকে এই বোট থেকে ব্যান করা হয়েছে।")
             return
     
@@ -178,12 +194,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 db.collection('settings').document('config').update({'min_withdraw': float(text)})
                 update_cache_if_expired(force=True)
                 await update.message.reply_text(f"✅ মিনিমাম উইথড্র `{text} BDT` করা হয়েছে।")
-            except: await update.message.reply_text("❌ ভুল ইনপুট।")
-        elif action == 'set_refer_bonus':
-            try:
-                db.collection('settings').document('config').update({'refer_bonus': float(text)})
-                update_cache_if_expired(force=True)
-                await update.message.reply_text(f"✅ রেফার বোনাস সফলভাবে `{text} BDT` সেট করা হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
         elif action == 'add_service':
             try:
@@ -271,18 +281,14 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
         elif action == 'user_info_search':
             search_query = text.strip().replace("@", "")
-            tgt_user = None
+            tgt_user = get_user_from_cache_or_db(search_query)
             
-            if search_query.isdigit():
-                doc = db.collection('users').document(search_query).get()
-                if doc.exists: tgt_user = doc
-                
             if not tgt_user:
                 users_by_uname = db.collection('users').where('username', '==', search_query).limit(1).get()
-                if users_by_uname: tgt_user = users_by_uname[0]
+                if users_by_uname: tgt_user = users_by_uname[0].to_dict()
 
             if tgt_user:
-                ud = tgt_user.to_dict()
+                ud = tgt_user
                 context.user_data['managed_user_id'] = str(ud['id'])
                 kbd = [
                     [InlineKeyboardButton("➕ ব্যালেন্স অ্যাড", callback_data="u_action_addbal"), InlineKeyboardButton("➖ ব্যালেন্স কাট", callback_data="u_action_cutbal")],
@@ -306,21 +312,28 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             try:
                 tgt_id = context.user_data.get('managed_user_id')
                 ref = db.collection('users').document(tgt_id)
-                ud_data = ref.get().to_dict()
+                ud_data = get_user_from_cache_or_db(tgt_id) or {}
                 current_bal = ud_data.get('balance', 0.0)
                 current_inc = ud_data.get('total_income', 0.0)
+                amt = float(text)
                 ref.update({
-                    'balance': current_bal + float(text),
-                    'total_income': current_inc + float(text)
+                    'balance': current_bal + amt,
+                    'total_income': current_inc + amt
                 })
+                ud_data['balance'] = current_bal + amt
+                ud_data['total_income'] = current_inc + amt
                 await update.message.reply_text("✅ ব্যালেন্স সফলভাবে যোগ করা হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
         elif action == 'cut_bal_amount':
             try:
                 tgt_id = context.user_data.get('managed_user_id')
                 ref = db.collection('users').document(tgt_id)
-                current_bal = ref.get().to_dict().get('balance', 0.0)
-                ref.update({'balance': max(0.0, current_bal - float(text))})
+                ud_data = get_user_from_cache_or_db(tgt_id) or {}
+                current_bal = ud_data.get('balance', 0.0)
+                amt = float(text)
+                new_bal = max(0.0, current_bal - amt)
+                ref.update({'balance': new_bal})
+                ud_data['balance'] = new_bal
                 await update.message.reply_text("✅ ব্যালেন্স সফলভাবে কেটে নেওয়া হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
         elif action == 'broadcast':
@@ -354,17 +367,22 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             config = get_bot_settings()
             min_w = config.get('min_withdraw', 110.0)
             user_ref = db.collection('users').document(str(user_id))
-            ud = user_ref.get().to_dict()
+            ud = get_user_from_cache_or_db(str(user_id))
             
             if amount < min_w:
                 await update.message.reply_text(f"❌ আপনার পর্যাপ্ত ব্যালেন্স নেই। মিনিমাম উইথড্র লিমিট: {min_w} BDT")
-            elif amount > ud['balance']:
+            elif amount > ud.get('balance', 0.0):
                 await update.message.reply_text("❌ আপনার একাউন্টে পর্যাপ্ত ব্যালেন্স নেই।")
             else:
+                new_bal = ud['balance'] - amount
+                new_pend = ud.get('pending_withdraw', 0.0) + amount
                 user_ref.update({
-                    'balance': ud['balance'] - amount,
-                    'pending_withdraw': ud.get('pending_withdraw', 0.0) + amount
+                    'balance': new_bal,
+                    'pending_withdraw': new_pend
                 })
+                ud['balance'] = new_bal
+                ud['pending_withdraw'] = new_pend
+                
                 db.collection('withdraws').add({
                     'user_id': user_id, 'name': ud.get('name', 'User'), 'method': context.user_data.get('w_method'),
                     'number': context.user_data.get('w_num'), 'amount': amount, 'status': 'pending', 'timestamp': datetime.utcnow()
@@ -387,15 +405,10 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("🔙 আপনি মেইন মেনুতে ফিরে এসেছেন।", reply_markup=get_main_menu(user_id))
     elif text == "💸 ওটিপি রেট" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'set_rate'
-        await update.message.reply_text("✍️ নতুন ওটিপি রেট পাঠান (যেমন: `0.70`):", reply_markup=get_inline_cancel())
+        await update.message.reply_text("✍️ নতুন ওটিপি রেট পাঠান:", reply_markup=get_inline_cancel())
     elif text == "⚙️ মিনিমাম উইথড্র" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'set_min_w'
         await update.message.reply_text("✍️ নতুন মিনিমাম উইথড্র লিমিট পাঠান:", reply_markup=get_inline_cancel())
-    elif text == "🎁 রেফার বোনাস" and user_id == ADMIN_ID:
-        context.user_data['adm_action'] = 'set_refer_bonus'
-        config = get_bot_settings()
-        current_bonus = config.get('refer_bonus', 0.10)
-        await update.message.reply_text(f"✍️ বর্তমান রেফার বোনাস: `{current_bonus} BDT`\n\nনতুন রেফার বোনাসের পরিমাণ পাঠান (যেমন: `0.10` বা `0.20`):", reply_markup=get_inline_cancel())
     elif text == "⚙️ Add Service" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'add_service'
         await update.message.reply_text("✍️ জাস্ট আপনার সার্ভিস এর নামটি লিখে পাঠান।\n\n✍️ যেমন: `Facebook`", reply_markup=get_inline_cancel())
@@ -545,7 +558,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
     elif text == "💸 Balance":
         user_id = update.effective_user.id
-        user_data = db.collection('users').document(str(user_id)).get().to_dict() or {}
+        user_data = get_user_from_cache_or_db(str(user_id)) or {}
         
         balance = user_data.get('balance', 0.0)
         pending_w = user_data.get('pending_withdraw', 0.0)
@@ -565,7 +578,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
     elif text == "💰 Withdraw":
         user_id = update.effective_user.id
-        user_data = db.collection('users').document(str(user_id)).get().to_dict() or {}
+        user_data = get_user_from_cache_or_db(str(user_id)) or {}
         config = get_bot_settings()
         min_w = config.get('min_withdraw', 110.0)
         if user_data.get('balance', 0.0) < min_w:
@@ -578,21 +591,19 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ]
         await update.message.reply_text(f"💳 **টাকা উত্তোলনের মেথড সিলেক্ট করুন (মিনিমাম লিমিট: {min_w} BDT):**", reply_markup=InlineKeyboardMarkup(keyboard))
     elif text == "🎁 My Referrals":
-        user_data = db.collection('users').document(str(user_id)).get().to_dict() or {}
-        config = get_bot_settings()
-        refer_bonus = config.get('refer_bonus', 0.10)
+        user_data = get_user_from_cache_or_db(str(user_id)) or {}
         refs = user_data.get('referrals', [])
         ref_count = len(refs)
         bot_uname = (await context.bot.get_me()).username
         refer_text = (
             f"🎁 ⚠️ **ধামাকা রেফার অফার! আনলিমিটেড ইনকাম করুন!** ⚠️ 🎁\n\n"
             f"👤 **Total Refer:** {ref_count} জন\n"
-            f"😃 **Total Refer Income:** {ref_count * refer_bonus:.2f} BDT\n\n"
+            f"😃 **Total Refer Income:** {ref_count * 0.10:.2f} BDT\n\n"
             f"🔗 **আপনার রেফার লিংক (কপি করতে ক্লিক করুন):**\n"
             f"`https://t.me/{bot_uname}?start={user_id}`\n\n"
             f"──────────────────────\n"
             f"🔥 **রেফারের সুবিধা:**\n"
-            f"💸 প্রতি সফল ওটিপিতে আপনার রেফারকৃত ইউজারের কাছ থেকে পাবেন লাইফটাইম কমিশন {refer_bonus:.2f} BDT! এখনই শেয়ার করুন! 🎉"
+            f"💸 প্রতি সফল ওটিপিতে আপনার রেফারকৃত ইউজারের কাছ থেকে পাবেন লাইফটাইম কমিশন ০.১০ পয়সা! এখনই শেয়ার করুন! 🎉"
         )
         await update.message.reply_text(refer_text, parse_mode="Markdown")
     elif text == "🧐 Support":
@@ -855,10 +866,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         w_ref.update({'status': 'approved'})
         
-        user_ref = db.collection('users').document(str(wd_data['user_id']))
-        ud_current = user_ref.get().to_dict()
+        user_id_str = str(wd_data['user_id'])
+        user_ref = db.collection('users').document(user_id_str)
+        ud_current = get_user_from_cache_or_db(user_id_str) or {}
         current_pend = ud_current.get('pending_withdraw', 0.0)
-        user_ref.update({'pending_withdraw': max(0.0, current_pend - wd_data['amount'])})
+        new_pend = max(0.0, current_pend - wd_data['amount'])
+        
+        user_ref.update({'pending_withdraw': new_pend})
+        ud_current['pending_withdraw'] = new_pend
         
         await query.edit_message_text("✅ উইথড্র রিকোয়েস্ট সফলভাবে অ্যাপ্রুভ (Paid) করা হয়েছে।")
         
@@ -880,15 +895,21 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         wd_data = w_ref.get().to_dict()
         
         w_ref.update({'status': 'rejected'})
-        user_ref = db.collection('users').document(str(wd_data['user_id']))
-        ud_current = user_ref.get().to_dict()
+        user_id_str = str(wd_data['user_id'])
+        user_ref = db.collection('users').document(user_id_str)
+        ud_current = get_user_from_cache_or_db(user_id_str) or {}
         current_bal = ud_current.get('balance', 0.0)
         current_pend = ud_current.get('pending_withdraw', 0.0)
         
+        new_bal = current_bal + wd_data['amount']
+        new_pend = max(0.0, current_pend - wd_data['amount'])
+        
         user_ref.update({
-            'balance': current_bal + wd_data['amount'],
-            'pending_withdraw': max(0.0, current_pend - wd_data['amount'])
+            'balance': new_bal,
+            'pending_withdraw': new_pend
         })
+        ud_current['balance'] = new_bal
+        ud_current['pending_withdraw'] = new_pend
         
         await query.edit_message_text("❌ উইথড্র রিকোয়েস্ট রিজেক্ট করা হয়েছে এবং ব্যালেন্স রিফান্ড করা হয়েছে।")
         try: await context.bot.send_message(chat_id=wd_data['user_id'], text=f"❌ আপনার {wd_data['amount']:.2f} BDT এর উইথড্র রিকোয়েস্টটি বাতিল করা হয়েছে এবং ব্যালেন্স ফেরত দেওয়া হয়েছে।")
@@ -897,6 +918,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("u_action_"):
         await query.answer()
         act = data.split("_")[2]
+        managed_id = context.user_data.get('managed_user_id')
         if act == 'addbal':
             context.user_data['adm_action'] = 'add_bal_amount'
             await query.message.reply_text("✍️ কত ব্যালেন্স অ্যাড করতে চান সেই সংখ্যাটি পাঠান:", reply_markup=get_inline_cancel())
@@ -904,10 +926,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['adm_action'] = 'cut_bal_amount'
             await query.message.reply_text("✍️ কত ব্যালেন্স কাটতে চান সেই সংখ্যাটি পাঠান:", reply_markup=get_inline_cancel())
         elif act == 'ban':
-            db.collection('users').document(context.user_data.get('managed_user_id')).update({'is_banned': True})
+            db.collection('users').document(managed_id).update({'is_banned': True})
+            if managed_id in LOCAL_USER_CACHE: LOCAL_USER_CACHE[managed_id]['is_banned'] = True
             await query.edit_message_text("✅ ইউজারকে সফলভাবে ব্যান করা হয়েছে।")
         elif act == 'unban':
-            db.collection('users').document(context.user_data.get('managed_user_id')).update({'is_banned': False})
+            db.collection('users').document(managed_id).update({'is_banned': False})
+            if managed_id in LOCAL_USER_CACHE: LOCAL_USER_CACHE[managed_id]['is_banned'] = False
             await query.edit_message_text("✅ ইউজারকে সফলভাবে আনব্যান করা হয়েছে।")
     elif data == "cancel_action":
         await query.answer()
@@ -915,90 +939,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['usr_action'] = None
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
-# 🔥 REAL & FAKE OTP CHECKER WITH 6 MIN AUTO-EXPIRE
+# 🔥 REAL OTP CHECKER (ZERO FIREBASE READ)
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
-    current_now = datetime.utcnow()
-    
-    # ⏱️ ১. ৬ মিনিট পার হওয়া নাম্বারগুলোকে অটো-এক্সপায়ার করা (RAM & Firebase Auto Clean)
-    for num, ord_info in list(LOCAL_ACTIVE_ORDERS.items()):
-        order_time = ord_info.get('timestamp')
-        if order_time and (current_now - order_time) > timedelta(minutes=6):
-            # ফায়ারবেসে স্ট্যাটাস Expired করা
-            db.collection('orders').document(num).update({'status': 'expired'})
-            if ord_info.get('source') == 'excel':
-                db.collection('excel_numbers').document(num).update({'status': 'expired'})
-            # মেমোরি থেকে মুছে দেওয়া
-            del LOCAL_ACTIVE_ORDERS[num]
-
     active_apis = get_active_providers()
-    config = get_bot_settings()
-    otp_rate = config.get('otp_rate', 0.70)
-    refer_bonus = config.get('refer_bonus', 0.10)
-    bot_username = (await context.bot.get_me()).username
-
-    # 🎭 ২. ফেক ওটিপি জেনারেটর (যদি লোকাল এক্টিভ অর্ডার থাকে)
-    for number, order_data in list(LOCAL_ACTIVE_ORDERS.items()):
-        if order_data.get('status') == 'active':
-            # ১০% চান্স ফেক ওটিপি ট্রিগার করার জন্য
-            if random.random() < 0.10:
-                fake_otp_code = str(random.randint(100000, 999999))
-                user_id = order_data['user_id']
-                service_name = order_data.get('service_name', 'Service')
-                country_name = order_data.get('country_name', 'Country')
-
-                user_ref = db.collection('users').document(str(user_id))
-                user_data = user_ref.get().to_dict() or {}
-
-                cur_bal = user_data.get('balance', 0.0) + otp_rate
-                cur_inc = user_data.get('total_income', 0.0) + otp_rate
-
-                user_ref.update({
-                    'balance': cur_bal,
-                    'total_income': cur_inc,
-                    'total_otp': user_data.get('total_otp', 0) + 1
-                })
-
-                # রেফারেন্স বোনাস ডাইনামিক যোগ
-                referrer_id = user_data.get('referred_by')
-                if referrer_id:
-                    db.collection('users').document(str(referrer_id)).update({
-                        'balance': firestore.Increment(refer_bonus),
-                        'total_income': firestore.Increment(refer_bonus)
-                    })
-
-                masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
-                balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
-                add_part = f"+{otp_rate:.2f} BDT"
-                space_count = max(1, 45 - (len(balance_part) + len(add_part)))
-                spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
-
-                success_msg = (
-                    f"✨ **Now OTP**\n"
-                    f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                    f"📱 Number: {masked_number}\n"
-                    f"🌍 Country: {country_name}\n"
-                    f"🎯 Service: {service_name}\n"
-                    f"👤 User: {user_data.get('name', 'User')}\n"
-                    f"{spaced_line}\n\n"
-                    f" Otp Code : `{fake_otp_code}`\n\n"
-                    f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                    f"🎁 প্রতি ওটিপিতে ফ্রিতে {refer_bonus:.2f} টাকা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
-                )
-
-                group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
-
-                try:
-                    await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
-                    await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
-                except Exception as e:
-                    logger.error(f"Error sending fake otp: {e}")
-
-                db.collection('orders').document(number).update({'status': 'completed'})
-                LOCAL_ACTIVE_ORDERS[number]['status'] = 'completed'
-                del LOCAL_ACTIVE_ORDERS[number]
-                continue
-
-    # 🌐 ৩. রিয়েল এপিআই ওটিপি চেক
     if not active_apis: return
     
     async with httpx.AsyncClient() as client:
@@ -1009,6 +952,10 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                 data = response.json()
                 
                 if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
+                    config = get_bot_settings()
+                    otp_rate = config.get('otp_rate', 0.70)
+                    bot_username = (await context.bot.get_me()).username
+                    
                     for latest_otp in data['data']['otps']:
                         number = str(latest_otp['number'])
                         if not number.startswith("+"): number = "+" + number
@@ -1017,12 +964,15 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         msg_hash = hashlib.md5(raw_msg.encode()).hexdigest()
                         otp_id = f"proc_{number}_{msg_hash}"
 
+                        # ১. লোকাল ক্যাশে ফিল্টার (0 Read)
                         if otp_id in LOCAL_PROCESSED_OTPS: 
                             continue    
 
+                        # ২. মেমোরি থেকে একটিভ অর্ডার চেক (0 Read)
                         order_data = LOCAL_ACTIVE_ORDERS.get(number)
                         
                         if not order_data:
+                            # মেমোরিতে না থাকলে কেবল ১ বার ডিরেক্ট রিড কল
                             order_doc = db.collection('orders').document(number).get()
                             if order_doc.exists:
                                 order_data = order_doc.to_dict()
@@ -1033,21 +983,29 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                                 continue
                                 
                             user_id = order_data['user_id']
+                            user_id_str = str(user_id)
                             service_name = order_data.get('service_name', 'Facebook')
                             country_name = order_data.get('country_name', 'Ivory Coast')
                             clean_otp = "".join(re.findall(r'\d+', str(latest_otp['message'])))
                             
-                            user_ref = db.collection('users').document(str(user_id))
-                            user_data = user_ref.get().to_dict() or {}
+                            # 🔥 RAM Cache থেকে ইউজার ডাটা রিড (0 Firestore Read)
+                            user_data = get_user_from_cache_or_db(user_id_str) or {}
                             
                             cur_bal = user_data.get('balance', 0.0) + otp_rate
                             cur_inc = user_data.get('total_income', 0.0) + otp_rate
+                            cur_otp_cnt = user_data.get('total_otp', 0) + 1
                             
-                            user_ref.update({
+                            # ডাটাবেজ আপডেট
+                            db.collection('users').document(user_id_str).update({
                                 'balance': cur_bal, 
                                 'total_income': cur_inc,
-                                'total_otp': user_data.get('total_otp', 0) + 1
+                                'total_otp': cur_otp_cnt
                             })
+                            
+                            # ক্যাশ আপডেট
+                            user_data['balance'] = cur_bal
+                            user_data['total_income'] = cur_inc
+                            user_data['total_otp'] = cur_otp_cnt
 
                             db.collection('processed_otps').document(otp_id).set({'timestamp': datetime.utcnow()})
                             LOCAL_PROCESSED_OTPS.add(otp_id)
@@ -1055,9 +1013,13 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             referrer_id = user_data.get('referred_by')
                             if referrer_id:
                                 db.collection('users').document(str(referrer_id)).update({
-                                    'balance': firestore.Increment(refer_bonus),
-                                    'total_income': firestore.Increment(refer_bonus)
+                                    'balance': firestore.Increment(0.10),
+                                    'total_income': firestore.Increment(0.10)
                                 })
+                                ref_user_data = get_user_from_cache_or_db(str(referrer_id))
+                                if ref_user_data:
+                                    ref_user_data['balance'] = ref_user_data.get('balance', 0.0) + 0.10
+                                    ref_user_data['total_income'] = ref_user_data.get('total_income', 0.0) + 0.10
 
                             masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
                             balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
@@ -1075,7 +1037,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                                 f"{spaced_line}\n\n"
                                 f" Otp Code : `{clean_otp}`\n\n"
                                 f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                                f"🎁 প্রতি ওটিপিতে ফ্রিতে {refer_bonus:.2f} টাকা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
+                                f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
                             )
                             
                             group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
@@ -1088,7 +1050,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             
                             db.collection('orders').document(number).update({'status': 'completed'})
                             if number in LOCAL_ACTIVE_ORDERS:
-                                del LOCAL_ACTIVE_ORDERS[number]
+                                LOCAL_ACTIVE_ORDERS[number]['status'] = 'completed'
 
                             if order_data.get('source') == 'excel':
                                 db.collection('excel_numbers').document(number).update({'status': 'used'})
@@ -1117,7 +1079,7 @@ def main():
     threading.Thread(target=run_built_in_server, daemon=True).start()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # ব্যাকগ্রাউন্ড ওটিপি চেকার ও অটো-এক্সপায়ার (১০ সেকেন্ড পরপর)
+    # ব্যাকগ্রাউন্ড রিয়েল ওটিপি চেকার (১০ সেকেন্ড পরপর)
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
     
     app.add_handler(CommandHandler("start", start))
