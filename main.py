@@ -20,7 +20,7 @@ import threading
 
 # Logging setup
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # 🔥 ZERO READ LOCAL CACHE
 LOCAL_PROCESSED_OTPS = set()
@@ -88,10 +88,9 @@ def update_cache_if_expired(force=False):
                 data = settings_ref.to_dict()
                 if 'services' not in data: data['services'] = {}
                 if 'countries' not in data: data['countries'] = {}
-                if 'fake_otp_enabled' not in data: data['fake_otp_enabled'] = False
                 CACHE_SETTINGS = data
             else:
-                CACHE_SETTINGS = {'otp_rate': 0.70, 'min_withdraw': 110.0, 'countries': {}, 'services': {}, 'fake_otp_enabled': False}
+                CACHE_SETTINGS = {'otp_rate': 0.70, 'min_withdraw': 110.0, 'countries': {}, 'services': {}}
                 db.collection('settings').document('config').set(CACHE_SETTINGS)
             
             providers = db.collection('api_providers').where('is_active', '==', True).get()
@@ -108,7 +107,7 @@ def get_active_providers():
 
 def get_bot_settings():
     update_cache_if_expired()
-    return CACHE_SETTINGS if CACHE_SETTINGS is not None else {'otp_rate': 0.70, 'min_withdraw': 110.0, 'countries': {}, 'services': {}, 'fake_otp_enabled': False}
+    return CACHE_SETTINGS if CACHE_SETTINGS is not None else {'otp_rate': 0.70, 'min_withdraw': 110.0, 'countries': {}, 'services': {}}
 
 def get_main_menu(user_id):
     keyboard = [["🎭 Number নিন", "💸 Balance"], ["💰 Withdraw", "🎁 My Referrals"], ["🧐 Support"]]
@@ -116,17 +115,14 @@ def get_main_menu(user_id):
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_admin_menu():
-    config = get_bot_settings()
-    fake_status = "ON 🟢" if config.get('fake_otp_enabled', False) else "OFF 🔴"
     keyboard = [
         ["💸 ওটিপি রেট", "⚙️ মিনিমাম উইথড্র"],
         ["👥 All User List", "📨 Withdraw Request"],
         ["⚙️ Add Service", "🗑️ Remove Service"],
         ["⚙️ Add Country", "🗑️ Remove Country"],
         ["🔌 Manage APIs", "👤 User Information"],
-        ["📊 Top 10 OTP (24h)", f"📢 Fake OTP: {fake_status}"],
-        ["📊 Excel Numbers", "📢 ব্রডকাস্ট"],
-        ["🔙 মেইন মেনু"]
+        ["📊 Top 10 OTP (24h)", "📊 Excel Numbers"],
+        ["📢 ব্রডকাস্ট", "🔙 মেইন মেনু"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -435,15 +431,6 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "📢 ব্রডকাস্ট" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'broadcast'
         await update.message.reply_text("✍️ আপনি সকল ইউজারের কাছে যে নোটিশ বা মেসেজটি পাঠাতে চান তা টাইপ করে এখানে পাঠান:", reply_markup=get_inline_cancel())
-
-    elif text.startswith("📢 Fake OTP:") and user_id == ADMIN_ID:
-        config = get_bot_settings()
-        current_status = config.get('fake_otp_enabled', False)
-        new_status = not current_status
-        db.collection('settings').document('config').update({'fake_otp_enabled': new_status})
-        update_cache_if_expired(force=True)
-        status_text = "চালু 🟢" if new_status else "বন্ধ 🔴"
-        await update.message.reply_text(f"📢 ফেক ওটিপি লুপটি সফলভাবে **{status_text}** করা হয়েছে।", reply_markup=get_admin_menu())
 
     elif text == "🔌 Manage APIs" and user_id == ADMIN_ID:
         providers = db.collection('api_providers').stream()
@@ -812,7 +799,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             }
             db.collection('orders').document(str(number)).set(order_data)
             
-            # 🔥 RAM-এ অওর্ডার সেভ করে রাখা হলো (ফায়ারবেস রিড কমানোর জন্য)
+            # 🔥 RAM-এ অওর্ডার সেভ রাখা (০ ফায়ারবেস রিড)
             LOCAL_ACTIVE_ORDERS[str(number)] = order_data
             
             num_box = (
@@ -820,8 +807,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🔄 <b>Waiting for OTP...</b>"
             )
             
+            clean_num = str(number).strip()
             action_buttons = [
-                [InlineKeyboardButton(text=f" 📋 {number}", copy_text={"text": str(number)})],
+                [InlineKeyboardButton(text=clean_num, copy_text={"text": clean_num})],
+                [InlineKeyboardButton(text=clean_num, copy_text={"text": clean_num})],
+                [InlineKeyboardButton(text=clean_num, copy_text={"text": clean_num})],
                 [
                     InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
                     InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")
@@ -910,7 +900,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['usr_action'] = None
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
-# 🔥 ABSOLUTE ZERO-READ OTP CHECKER 
+# 🔥 REAL OTP CHECKER (ZERO FIREBASE READ)
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     active_apis = get_active_providers()
     if not active_apis: return
@@ -935,15 +925,15 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         msg_hash = hashlib.md5(raw_msg.encode()).hexdigest()
                         otp_id = f"proc_{number}_{msg_hash}"
 
-                        # ১. লোকাল ক্যাশে প্রসেসড থাকলে ১ বারও ডাটাবেজ টাচ করবে না (0 Read)
+                        # ১. লোকাল ক্যাশে ফিল্টার (0 Read)
                         if otp_id in LOCAL_PROCESSED_OTPS: 
                             continue    
 
-                        # ২. লোকাল এক্টিভ অর্ডারে চেক করা হচ্ছে (0 Read database call)
+                        # ২. মেমোরি থেকে একটিভ অর্ডার চেক (0 Read)
                         order_data = LOCAL_ACTIVE_ORDERS.get(number)
                         
-                        # যদি লোকাল মেমোরিতে না পাওয়া যায় তবে ফায়ারবেস থেকে ১ বার রিড করবে
                         if not order_data:
+                            # মেমোরিতে না থাকলে কেবল ১ বার ডিরেক্ট রিড কল
                             order_doc = db.collection('orders').document(number).get()
                             if order_doc.exists:
                                 order_data = order_doc.to_dict()
@@ -970,7 +960,6 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                                 'total_otp': user_data.get('total_otp', 0) + 1
                             })
 
-                            # ফায়ারবেসে স্ট্যাটাস আপডেট
                             db.collection('processed_otps').document(otp_id).set({'timestamp': datetime.utcnow()})
                             LOCAL_PROCESSED_OTPS.add(otp_id)
 
@@ -1017,50 +1006,6 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             break
             except: pass
 
-async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
-    config = CACHE_SETTINGS or {}
-    if not config.get('fake_otp_enabled', False): 
-        return
-
-    fake_names = ["Sabbir", "Rahat", "Emon", "Tanvir", "Noyon", "Alamin", "Sujon", "Mim", "Riya", "Antor", "Ishrat"]
-    fake_services = ["Facebook", "Telegram", "WhatsApp", "Gmail", "Imo", "TikTok"]
-    fake_countries = ["Ivory Coast", "Guinea", "Nigeria", "Bangladesh", "India"]
-    
-    otp_rate = config.get('otp_rate', 0.70)
-    bot_username = (await context.bot.get_me()).username
-    
-    rand_name = random.choice(fake_names)
-    rand_service = random.choice(fake_services)
-    rand_country = random.choice(fake_countries)
-    rand_balance = round(random.uniform(10.50, 450.00), 2)
-    rand_otp = str(random.randint(10000, 99999))
-
-    fake_num = "+" + "".join([str(random.randint(0, 9)) for _ in range(11)])
-    masked_number = "XXXXX" + fake_num[-5:]
-
-    balance_part = f"💰 Balance: {rand_balance:.2f} BDT"
-    add_part = f"+{otp_rate:.2f} BDT"
-    space_count = max(1, 45 - (len(balance_part) + len(add_part)))
-    spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
-
-    fake_msg = (
-        f"✨ **Now OTP**\n"
-        f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-        f"📱 Number: {masked_number}\n"
-        f"🌍 Country: {rand_country}\n"
-        f"🎯 Service: {rand_service}\n"
-        f"👤 User: {rand_name}\n"
-        f"{spaced_line}\n\n"
-        f" Otp Code : `{rand_otp}`\n\n"
-        f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-        f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
-    )
-    group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
-    try: 
-        await context.bot.send_message(chat_id=OTP_GROUP_ID, text=fake_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
-    except Exception as e:
-        logger.error(f"Error sending fake otp: {e}")
-
 class RenderServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -1083,9 +1028,8 @@ def main():
     threading.Thread(target=run_built_in_server, daemon=True).start()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
-    # ব্যাকগ্রাউন্ড টাস্ক শিডিউল
+    # ব্যাকগ্রাউন্ড রিয়েল ওটিপি চেকার (১০ সেকেন্ড পরপর)
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
-    app.job_queue.run_repeating(fake_otp_generator, interval=600, first=10)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callback_handler))
