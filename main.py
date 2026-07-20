@@ -4,16 +4,14 @@ import json
 import asyncio
 import sys
 import random
-import io
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import firebase_admin
 from firebase_admin import credentials, firestore
 import requests
-import openpyxl
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 
@@ -41,6 +39,7 @@ ADMIN_ID = int(os.getenv('ADMIN_ID', '0'))
 OTP_GROUP_ID = "-1003656135640"
 OTP_GROUP_URL = "https://t.me/emotp100"       
 MAIN_CHANNEL_URL = "https://t.me/helptg100"   
+SUPPORT_USERNAME = "helptg100"
 
 if not firebase_admin._apps:
     firebase_json = json.loads(os.getenv('FIREBASE_JSON'))
@@ -67,7 +66,7 @@ def clear_cache():
 def get_bot_settings():
     global _cached_config, _config_last_fetch
     now = time.time()
-    if _cached_config is None or (now - _config_last_fetch) > 600:
+    if _cached_config is None or (now - _config_last_fetch) > 1800:
         settings_ref = db.collection('settings').document('config').get()
         if settings_ref.exists:
             _cached_config = settings_ref.to_dict()
@@ -83,7 +82,7 @@ def get_bot_settings():
 def get_active_providers():
     global _cached_providers, _providers_last_fetch
     now = time.time()
-    if _cached_providers is None or (now - _providers_last_fetch) > 600:
+    if _cached_providers is None or (now - _providers_last_fetch) > 1800:
         providers = db.collection('api_providers').where('is_active', '==', True).get()
         _cached_providers = [p.to_dict() for p in providers]
         _providers_last_fetch = now
@@ -135,21 +134,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     referrer = args[0] if args and args[0].isdigit() and int(args[0]) != user_id else None
 
     user_ref = db.collection('users').document(str(user_id))
-    user_doc = user_ref.get()
     
-    if not user_doc.exists:
-        user_ref.set({
-            'id': user_id, 'name': first_name, 'username': username,
-            'balance': 0.0, 'pending_withdraw': 0.0, 'total_income': 0.0, 'total_otp': 0, 
-            'referred_by': referrer, 'is_banned': False, 'referrals': []
-        })
-        if referrer:
-            db.collection('users').document(str(referrer)).update({'referrals': firestore.ArrayUnion([str(user_id)])})
-    else:
-        user_ref.update({'username': username, 'name': first_name})
-        if user_doc.to_dict().get('is_banned', False):
-            await update.message.reply_text("❌ দুঃখিত, আপনাকে এই বোট থেকে ব্যান করা হয়েছে।")
-            return
+    user_ref.set({
+        'id': user_id, 'name': first_name, 'username': username,
+        'balance': firestore.Increment(0),
+        'pending_withdraw': firestore.Increment(0),
+        'total_income': firestore.Increment(0),
+        'total_otp': firestore.Increment(0),
+        'referrals': firestore.ArrayUnion([]),
+        'refer_income': firestore.Increment(0),
+        'referred_by': referrer,
+        'is_banned': False
+    }, merge=True)
+
+    if referrer:
+        db.collection('users').document(str(referrer)).update({'referrals': firestore.ArrayUnion([str(user_id)])})
     
     text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম।\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
     await update.message.reply_text(text, reply_markup=get_main_menu(user_id))
@@ -157,28 +156,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
-    action = context.user_data.get('adm_action')
+    adm_action = context.user_data.get('adm_action')
+    usr_action = context.user_data.get('usr_action')
 
-    if user_id == ADMIN_ID and action:
-        if action == 'set_rate':
+    # ADMIN ACTIONS
+    if user_id == ADMIN_ID and adm_action:
+        if adm_action == 'set_rate':
             try:
                 db.collection('settings').document('config').update({'otp_rate': float(text)})
                 clear_cache()
                 await update.message.reply_text(f"✅ ওটিপি রেট সফলভাবে `{text} BDT` করা হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
-        elif action == 'set_min_w':
+        elif adm_action == 'set_min_w':
             try:
                 db.collection('settings').document('config').update({'min_withdraw': float(text)})
                 clear_cache()
                 await update.message.reply_text(f"✅ মিনিমাম উইথড্র `{text} BDT` করা হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
-        elif action == 'set_ref_bonus':
+        elif adm_action == 'set_ref_bonus':
             try:
                 db.collection('settings').document('config').update({'refer_bonus': float(text)})
                 clear_cache()
                 await update.message.reply_text(f"✅ রেফার বোনাস সফলভাবে `{text} BDT` সেট করা হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
-        elif action == 'add_service':
+        elif adm_action == 'add_service':
             try:
                 service_name = text.strip()
                 service_code = service_name.lower()[:2]
@@ -189,7 +190,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 clear_cache()
                 await update.message.reply_text(f"✅ সার্ভিস সফলভাবে যুক্ত হয়েছে: **{service_name}**")
             except: await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে।")
-        elif action == 'remove_service':
+        elif adm_action == 'remove_service':
             try:
                 s_name = text.strip()
                 config = get_bot_settings()
@@ -202,7 +203,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 else:
                     await update.message.reply_text("❌ সার্ভিসটি পাওয়া যায়নি।")
             except: await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে।")
-        elif action == 'add_country_input':
+        elif adm_action == 'add_country_input':
             try:
                 parts = text.strip().split()
                 if len(parts) >= 2:
@@ -222,7 +223,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 else:
                     await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Ivory Coast 225079`")
             except Exception as e: await update.message.reply_text(f"❌ ত্রুটি হয়েছে: {str(e)}")
-        elif action == 'remove_country_input':
+        elif adm_action == 'remove_country_input':
             try:
                 c_name = text.strip()
                 srv_target = context.user_data.get('target_rem_country_service')
@@ -236,7 +237,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 else:
                     await update.message.reply_text("❌ পাওয়া যায়নি।")
             except: await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে।")
-        elif action == 'user_info':
+        elif adm_action == 'user_info':
             try:
                 u_id = text.strip()
                 udoc = db.collection('users').document(u_id).get()
@@ -248,14 +249,13 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                         f"🏷️ Name: {ud.get('name')}\n"
                         f"👤 Username: @{ud.get('username')}\n"
                         f"💵 Balance: {ud.get('balance', 0.0):.2f} BDT\n"
-                        f"📞 Total OTP: {ud.get('total_otp', 0)} টি\n"
-                        f"👥 Referrals: {len(ud.get('referrals', []))} জন"
+                        f"📞 Total OTP: {ud.get('total_otp', 0)} টি"
                     )
                     await update.message.reply_text(info, parse_mode="Markdown")
                 else:
                     await update.message.reply_text("❌ এই আইডি-র কোনো ইউজার ডাটাবেজে নেই।")
             except: await update.message.reply_text("❌ ভুল ইউজার আইডি।")
-        elif action == 'add_api_provider':
+        elif adm_action == 'add_api_provider':
             try:
                 parts = text.strip().split()
                 if len(parts) == 3:
@@ -269,10 +269,10 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 else:
                     await update.message.reply_text("❌ ফরম্যাট ভুল! দিন: `Name BaseURL APIKey`")
             except: await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে।")
-        elif action == 'broadcast':
-            users = db.collection('users').stream()
+        elif adm_action == 'broadcast':
+            users_docs = db.collection('users').select(['id']).stream()
             count = 0
-            for u in users:
+            for u in users_docs:
                 try: 
                     await context.bot.send_message(chat_id=u.to_dict()['id'], text=f"{text}")
                     count += 1
@@ -282,43 +282,53 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data['adm_action'] = None
         return
 
-    user_action = context.user_data.get('usr_action')
-    if user_action == 'w_num_input':
-        num_pattern = r'^(?:\+88|88)?(01[3-9]\d{8})$'
-        match = re.search(num_pattern, text.strip())
-        if not match:
-            await update.message.reply_text("❌ ভুল নাম্বার! সঠিক ১১ ডিজিটের নাম্বার দিন:")
-            return
-        context.user_data['w_num'] = match.group(1)
-        context.user_data['usr_action'] = 'w_amount_input'
-        await update.message.reply_text("✍️ এবার কত টাকা উইথড্র করতে চান টাইপ করুন:", reply_markup=get_inline_cancel())
-        return
-        
-    elif user_action == 'w_amount_input':
+    # USER ACTIONS (WITHDRAW)
+    if usr_action == 'withdraw_amount':
         try:
             amount = float(text)
             config = get_bot_settings()
             min_w = config.get('min_withdraw', 110.0)
-            user_ref = db.collection('users').document(str(user_id))
-            ud = user_ref.get().to_dict()
-            
+            user_doc = db.collection('users').document(str(user_id)).get().to_dict() or {}
+            bal = user_doc.get('balance', 0.0)
+
             if amount < min_w:
-                await update.message.reply_text(f"❌ মিনিমাম উইথড্র লিমিট: {min_w} BDT")
-            elif amount > ud['balance']:
-                await update.message.reply_text("❌ আপনার একাউন্টে পর্যাপ্ত ব্যালেন্স নেই।")
-            else:
-                user_ref.update({
-                    'balance': ud['balance'] - amount,
-                    'pending_withdraw': ud.get('pending_withdraw', 0.0) + amount
-                })
-                db.collection('withdraws').add({
-                    'user_id': user_id, 'name': ud.get('name', 'User'), 'method': context.user_data.get('w_method'),
-                    'number': context.user_data.get('w_num'), 'amount': amount, 'status': 'pending', 'timestamp': datetime.utcnow()
-                })
-                await update.message.reply_text("✅ আপনার উইথড্র আবেদনটি জমা হয়েছে!")
-        except: 
-            await update.message.reply_text("❌ ভুল ইনপুট।")
+                await update.message.reply_text(f"❌ মিনিমাম উইথড্র অ্যামাউন্ট {min_w} BDT।")
+                return
+            if amount > bal:
+                await update.message.reply_text("❌ আপনার পর্যাপ্ত ব্যালেন্স নেই।")
+                return
+
+            context.user_data['w_amount'] = amount
+            context.user_data['usr_action'] = 'withdraw_num'
+            await update.message.reply_text("📱 আপনার পেমেন্ট নাম্বারটি (Bkash/Nagad/Rocket) পাঠান:", reply_markup=get_inline_cancel())
+            return
+        except:
+            await update.message.reply_text("❌ সঠিক সংখ্যা ইনপুট দিন।")
+            return
+
+    elif usr_action == 'withdraw_num':
+        w_number = text.strip()
+        amount = context.user_data.get('w_amount', 0.0)
+        method = context.user_data.get('w_method', 'Bkash/Nagad')
+
+        user_ref = db.collection('users').document(str(user_id))
+        user_ref.update({
+            'balance': firestore.Increment(-amount),
+            'pending_withdraw': firestore.Increment(amount)
+        })
+
+        db.collection('withdraws').add({
+            'user_id': user_id,
+            'name': update.effective_user.first_name,
+            'amount': amount,
+            'number': w_number,
+            'method': method,
+            'status': 'pending',
+            'created_at': time.time()
+        })
+
         context.user_data['usr_action'] = None
+        await update.message.reply_text("✅ আপনার উইথড্র রিকোয়েস্ট সফলভাবে জমা হয়েছে! অ্যাডমিন চেক করে পেমেন্ট সম্পন্ন করবে।")
         return
 
     # Admin Menu Commands
@@ -360,8 +370,9 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data['adm_action'] = 'add_api_provider'
         await update.message.reply_text("✍️ API যোগ করতে এই ফরম্যাটে পাঠান:\n`Name BaseURL APIKey`", reply_markup=get_inline_cancel())
     elif text == "👥 All User List" and user_id == ADMIN_ID:
-        users = db.collection('users').stream()
-        total_users = sum(1 for _ in users)
+        count_query = db.collection('users').count()
+        results = count_query.get()
+        total_users = results[0][0].value
         await update.message.reply_text(f"👥 **মোট রেজিষ্টার্ড ইউজার:** {total_users} জন")
     elif text == "📨 Withdraw Request" and user_id == ADMIN_ID:
         reqs = db.collection('withdraws').where('status', '==', 'pending').get()
@@ -391,8 +402,8 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             top_text += f"{idx}. {ud.get('name')} - {ud.get('total_otp', 0)} টি OTP\n"
         await update.message.reply_text(top_text)
     elif text == "📊 Excel Numbers" and user_id == ADMIN_ID:
-        xls = db.collection('excel_numbers').get()
-        avail = sum(1 for x in xls if x.to_dict().get('status') == 'available')
+        count_query = db.collection('excel_numbers').where('status', '==', 'available').count().get()
+        avail = count_query[0][0].value
         await update.message.reply_text(f"📊 **Excel Numbers:**\n\nমোট এভেইলএবল নাম্বার: {avail} টি")
     elif text.startswith("📢 Fake OTP:") and user_id == ADMIN_ID:
         config = get_bot_settings()
@@ -404,7 +415,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data['adm_action'] = 'broadcast'
         await update.message.reply_text("✍️ যে নোটিশটি সকল ইউজারকে পাঠাতে চান তা লিখে পাঠান:", reply_markup=get_inline_cancel())
 
-    # User Buttons
+    # USER BUTTONS
     elif text == "🎭 Number নিন":
         config = get_bot_settings()
         services = config.get('services', {})
@@ -418,105 +429,71 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
     elif text == "💸 Balance":
         user_data = db.collection('users').document(str(user_id)).get().to_dict() or {}
-        balance_card = (
-            f"💵 **আপনার ব্যালেন্স**\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💵 ব্যালেন্স: {user_data.get('balance', 0.0):.2f} BDT\n"
-            f"💸 পেন্ডিং: {user_data.get('pending_withdraw', 0.0):.2f} BDT\n"
-            f"💰 Total Income: {user_data.get('total_income', 0.0):.2f} BDT\n"
-            f"📞 মোট ওটিপি: {user_data.get('total_otp', 0)} টি"
-        )
-        await update.message.reply_text(balance_card, parse_mode="Markdown")
+        bal = user_data.get('balance', 0.0)
+        pending = user_data.get('pending_withdraw', 0.0)
+        income = user_data.get('total_income', 0.0)
+        tot_otp = user_data.get('total_otp', 0)
         
-    elif text == "💰 Withdraw":
-        user_data = db.collection('users').document(str(user_id)).get().to_dict() or {}
-        config = get_bot_settings()
-        min_w = config.get('min_withdraw', 110.0)
-        if user_data.get('balance', 0.0) < min_w:
-            await update.message.reply_text(f"❌ পর্যাপ্ত ব্যালেন্স নেই। মিনিমাম: {min_w} BDT")
-            return
-        keyboard = [
-            [InlineKeyboardButton("📱 বিকাশ (Bkash)", callback_data="w_method_bkash")],
-            [InlineKeyboardButton("💸 নগদ (Nagad)", callback_data="w_method_nagad")],
-            [InlineKeyboardButton("❌ বাতিল করুন", callback_data="cancel_action")]
-        ]
-        await update.message.reply_text(f"💳 **মেথড সিলেক্ট করুন (মিনিমাম: {min_w} BDT):**", reply_markup=InlineKeyboardMarkup(keyboard))
+        balance_card = (
+            f"💵**আপনার ব্যালেন্স**\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"💵**ব্যালেন্স:** {bal:.2f} BDT\n"
+            f"💸**পেন্ডিং (উইথড্র):** {pending:.2f} BDT\n"
+            f" 💰**Total Income:** {income:.2f} BDT\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"📞**মোট ওটিপি রিসিভ:** {tot_otp} টি"
+        )
+        await update.message.reply_text(balance_card)
 
     elif text == "🎁 My Referrals":
         user_data = db.collection('users').document(str(user_id)).get().to_dict() or {}
-        refs = user_data.get('referrals', [])
-        bot_uname = (await context.bot.get_me()).username
-        refer_text = (
-            f"🎁 **রেফার এরিয়া**\n\n"
-            f"👤 Total Refer: {len(refs)} জন\n"
-            f"🔗 রেফার লিংক:\n"
-            f"https://t.me/{bot_uname}?start={user_id}"
+        referrals = user_data.get('referrals', [])
+        total_refer = len(referrals) if isinstance(referrals, list) else 0
+        refer_income = user_data.get('refer_income', 0.0)
+        bot_username = (await context.bot.get_me()).username
+
+        refer_card = (
+            f"🎁 **My Referrals**\n"
+            f"👤 Total Refer: {total_refer}\n"
+            f"😃 Total Refer Income: {refer_income:.2f} BDT\n"
+            f"🔗 আপনার রেফার লিংক:\n"
+            f"https://t.me/{bot_username}?start={user_id}\n\n"
+            f"ℹ️ আপনার রেফারেল লিংক ব্যবহার করে যে যত OTP নিবে প্রতিটি OTP জন্য আপনি ১০ পয়সা করে পাবেন💥"
         )
-        await update.message.reply_text(refer_text)
+        await update.message.reply_text(refer_card, disable_web_page_preview=True)
+
+    elif text == "💰 Withdraw":
+        config = get_bot_settings()
+        min_w = config.get('min_withdraw', 110.0)
+        kbd = [
+            [InlineKeyboardButton("Bkash", callback_data="w_m_bkash"), InlineKeyboardButton("Nagad", callback_data="w_m_nagad")],
+            [InlineKeyboardButton("Rocket", callback_data="w_m_rocket")],
+            [InlineKeyboardButton("❌ বাতিল", callback_data="cancel_action")]
+        ]
+        await update.message.reply_text(f"💰 **উইথড্র মাধ্যম নির্বাচন করুন:**\n\n📌 মিনিমাম উইথড্র: `{min_w} BDT`", reply_markup=InlineKeyboardMarkup(kbd))
 
     elif text == "🧐 Support":
-        support_card = "📞 **গ্রাহক সেবা কেন্দ্র**\n\nযেকোনো সমস্যায় সাপোর্ট টিমে যোগাযোগ করুন।"
-        support_kbd = [
-            [InlineKeyboardButton("➡️ অ্যাডমিন সাপোর্ট", url="https://t.me/helptg10")],
-            [InlineKeyboardButton("➡️ অফিসিয়াল চ্যানেল", url="https://t.me/helptg100")]
-        ]
-        await update.message.reply_text(support_card, reply_markup=InlineKeyboardMarkup(support_kbd), parse_mode="Markdown")
+        kbd = [[InlineKeyboardButton("💬 Admin Support", url=f"https://t.me/{SUPPORT_USERNAME}")]]
+        await update.message.reply_text("🧐 যেকোনো প্রয়োজনে আমাদের অ্যাডমিন সাপোর্টে যোগাযোগ করুন:", reply_markup=InlineKeyboardMarkup(kbd))
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
 
-    if data.startswith("w_app_"):
+    # NEW FIXED: Add/Remove Country Admin Callbacks
+    if data.startswith("adm_add_c_srv_"):
         await query.answer()
-        doc_id = data.replace("w_app_", "")
-        w_doc = db.collection('withdraws').document(doc_id).get()
-        if w_doc.exists:
-            wd = w_doc.to_dict()
-            db.collection('withdraws').document(doc_id).update({'status': 'approved'})
-            u_ref = db.collection('users').document(str(wd['user_id']))
-            u_data = u_ref.get().to_dict() or {}
-            u_ref.update({'pending_withdraw': max(0.0, u_data.get('pending_withdraw', 0.0) - wd['amount'])})
-            try: await context.bot.send_message(chat_id=wd['user_id'], text=f"✅ আপনার {wd['amount']} BDT উইথড্র এপ্রুভ করা হয়েছে!")
-            except: pass
-            await query.edit_message_text("✅ Approved!")
-
-    elif data.startswith("w_rej_"):
-        await query.answer()
-        doc_id = data.replace("w_rej_", "")
-        w_doc = db.collection('withdraws').document(doc_id).get()
-        if w_doc.exists:
-            wd = w_doc.to_dict()
-            db.collection('withdraws').document(doc_id).update({'status': 'rejected'})
-            u_ref = db.collection('users').document(str(wd['user_id']))
-            u_data = u_ref.get().to_dict() or {}
-            u_ref.update({
-                'balance': u_data.get('balance', 0.0) + wd['amount'],
-                'pending_withdraw': max(0.0, u_data.get('pending_withdraw', 0.0) - wd['amount'])
-            })
-            try: await context.bot.send_message(chat_id=wd['user_id'], text=f"❌ আপনার {wd['amount']} BDT উইথড্র রিজেক্ট করা হয়েছে এবং ব্যালেন্স ফেরত দেওয়া হয়েছে।")
-            except: pass
-            await query.edit_message_text("❌ Rejected!")
-
-    elif data.startswith("adm_add_c_srv_"):
-        await query.answer()
-        srv_name = data.replace("adm_add_c_srv_", "")
+        s_name = data.replace("adm_add_c_srv_", "")
+        context.user_data['target_add_country_service'] = s_name
         context.user_data['adm_action'] = 'add_country_input'
-        context.user_data['target_add_country_service'] = srv_name
-        await query.edit_message_text(f"✍️ **{srv_name}** এর জন্য দেশের নাম ও কোড দিন:\nউদাহরণ: `Ivory Coast 225079`")
+        await query.edit_message_text(f"✍️ **{s_name}** এর জন্য দেশের নাম এবং কোড দিন।\nউদাহরণ: `Ivory Coast 225079`", reply_markup=get_inline_cancel())
 
     elif data.startswith("adm_rem_c_srv_"):
         await query.answer()
-        srv_name = data.replace("adm_rem_c_srv_", "")
+        s_name = data.replace("adm_rem_c_srv_", "")
+        context.user_data['target_rem_country_service'] = s_name
         context.user_data['adm_action'] = 'remove_country_input'
-        context.user_data['target_rem_country_service'] = srv_name
-        await query.edit_message_text(f"✍️ **{srv_name}** থেকে যে দেশের নাম মুছতে চান তা টাইপ করুন:")
-
-    elif data.startswith("w_method_"):
-        await query.answer()
-        method = "Bkash" if "bkash" in data else "Nagad"
-        context.user_data['w_method'] = method
-        context.user_data['usr_action'] = 'w_num_input'
-        await query.edit_message_text(f"📱 আপনার **{method}** নাম্বারটি লিখে পাঠান:")
+        await query.edit_message_text(f"✍️ **{s_name}** থেকে যে দেশটি মুছতে চান তার নাম টাইপ করুন:", reply_markup=get_inline_cancel())
 
     elif data.startswith("usr_s_"):
         await query.answer()
@@ -552,41 +529,32 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         premium_flag = get_premium_flag(c_name)
         
         number = None
-        source_type = 'excel'
-        provider_id_used = 'excel'
+        source_type = 'api'
+        provider_id_used = 'api'
         
-        xl_num_query = db.collection('excel_numbers').where('service_code', '==', s_code).where('country_code', '==', c_code).where('status', '==', 'available').limit(1).get()
-        
-        if xl_num_query:
-            xl_doc = xl_num_query[0]
-            number = xl_doc.id
-            db.collection('excel_numbers').document(number).update({'status': 'active', 'user_id': user_id})
-        else:
-            active_apis = get_active_providers()
-            for active_api in active_apis:
-                try:
-                    api_res = requests.post(f"{active_api['base_url']}/getnum", headers={"mauthapi": active_api['api_key']}, json={"rid": c_code}, timeout=5).json()
-                    if api_res.get('meta', {}).get('code') == 200:
-                        number = api_res['data']['full_number']
-                        source_type = 'api'
-                        provider_id_used = active_api['id']
-                        break
-                except: continue
+        active_apis = get_active_providers()
+        for active_api in active_apis:
+            try:
+                api_res = requests.post(f"{active_api['base_url']}/getnum", headers={"mauthapi": active_api['api_key']}, json={"rid": c_code}, timeout=5).json()
+                if api_res.get('meta', {}).get('code') == 200:
+                    number = api_res['data']['full_number']
+                    provider_id_used = active_api['id']
+                    break
+            except: continue
                 
         if number:
             if not str(number).startswith("+"): number = "+" + str(number)
             expire_at = time.time() + 600
             
             _active_orders_memory[number] = {
-                'user_id': user_id, 'service_name': s_name, 'country_name': c_name,
-                'source': source_type, 'provider_id': provider_id_used, 'expire_at': expire_at
+                'user_id': user_id, 
+                'user_name': query.from_user.first_name or "User",
+                'service_name': s_name, 
+                'country_name': c_name,
+                'source': source_type, 
+                'provider_id': provider_id_used, 
+                'expire_at': expire_at
             }
-            
-            db.collection('orders').document(str(number)).set({
-                'user_id': user_id, 'status': 'active', 'country_name': c_name,
-                'service_name': s_name, 'source': source_type, 'provider_id': provider_id_used,
-                'timestamp': datetime.utcnow()
-            })
             
             num_box = (
                 f"{premium_flag} <b>{c_name} Allocated</b> ✅\n\n"
@@ -606,6 +574,38 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(text=num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="HTML")
         else:
             await query.edit_message_text("❌ বর্তমানে কোনো নাম্বার খালি নেই।", reply_markup=get_inline_cancel())
+
+    elif data.startswith("w_m_"):
+        method = data.split("_")[2].capitalize()
+        context.user_data['w_method'] = method
+        context.user_data['usr_action'] = 'withdraw_amount'
+        await query.edit_message_text(f"💵 কত টাকা উইথড্র করতে চান তা লিখুন (Method: {method}):")
+
+    elif data.startswith("w_app_") or data.startswith("w_rej_"):
+        req_id = data.split("_")[2]
+        doc_ref = db.collection('withdraws').document(req_id)
+        w_doc = doc_ref.get()
+        
+        if w_doc.exists:
+            w_data = w_doc.to_dict()
+            u_id = str(w_data['user_id'])
+            amt = w_data['amount']
+
+            if data.startswith("w_app_"):
+                doc_ref.update({'status': 'approved'})
+                db.collection('users').document(u_id).update({'pending_withdraw': firestore.Increment(-amt)})
+                await query.edit_message_text("✅ উইথড্র রিকোয়েস্ট **Approve** করা হয়েছে।")
+                try: await context.bot.send_message(chat_id=u_id, text=f"✅ আপনার {amt} BDT উইথড্র রিকোয়েস্ট সফলভাবে সম্পন্ন হয়েছে!")
+                except: pass
+            else:
+                doc_ref.update({'status': 'rejected'})
+                db.collection('users').document(u_id).update({
+                    'balance': firestore.Increment(amt),
+                    'pending_withdraw': firestore.Increment(-amt)
+                })
+                await query.edit_message_text("❌ উইথড্র রিকোয়েস্ট **Reject** করা হয়েছে ও ব্যালেন্স ফেরত দেওয়া হয়েছে।")
+                try: await context.bot.send_message(chat_id=u_id, text=f"❌ আপনার {amt} BDT উইথড্র রিকোয়েস্ট বাতিল করা হয়েছে এবং টাকা ফেরত দেওয়া হয়েছে।")
+                except: pass
             
     elif data == "cancel_action":
         await query.answer()
@@ -638,49 +638,36 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                     if not number.startswith("+"): number = "+" + number
                     
                     otp_id = f"{number}_{latest_otp.get('id', hash(latest_otp.get('message', '')))}"
-                    
                     if otp_id in _processed_otps_set: continue
                     
                     if number in _active_orders_memory:
                         order_data = _active_orders_memory[number]
                         user_id = order_data['user_id']
+                        user_name = order_data.get('user_name', 'User')
                         service_name = order_data['service_name']
                         country_name = order_data['country_name']
                         clean_otp = "".join(re.findall(r'\d+', str(latest_otp['message'])))
                         
                         user_ref = db.collection('users').document(str(user_id))
-                        user_doc = user_ref.get()
-                        if not user_doc.exists: continue
-                        user_data = user_doc.to_dict()
-                        
-                        cur_bal = user_data.get('balance', 0.0) + otp_rate
-                        cur_inc = user_data.get('total_income', 0.0) + otp_rate
-                        
                         user_ref.update({
-                            'balance': cur_bal, 
-                            'total_income': cur_inc,
-                            'total_otp': user_data.get('total_otp', 0) + 1
+                            'balance': firestore.Increment(otp_rate),
+                            'total_income': firestore.Increment(otp_rate),
+                            'total_otp': firestore.Increment(1)
                         })
 
-                        referrer_id = user_data.get('referred_by')
+                        user_doc = user_ref.get().to_dict() or {}
+                        referrer_id = user_doc.get('referred_by')
                         if referrer_id:
-                            ref_user_ref = db.collection('users').document(str(referrer_id))
-                            ref_doc = ref_user_ref.get()
-                            if ref_doc.exists:
-                                ref_data = ref_doc.to_dict()
-                                ref_user_ref.update({
-                                    'balance': ref_data.get('balance', 0.0) + ref_bonus,
-                                    'total_income': ref_data.get('total_income', 0.0) + ref_bonus
-                                })
+                            db.collection('users').document(str(referrer_id)).update({
+                                'balance': firestore.Increment(ref_bonus),
+                                'total_income': firestore.Increment(ref_bonus),
+                                'refer_income': firestore.Increment(ref_bonus)
+                            })
 
                         _processed_otps_set.add(otp_id)
                         del _active_orders_memory[number]
                         
                         masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
-                        balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
-                        add_part = f"+{otp_rate:.2f} BDT"
-                        space_count = max(1, 45 - (len(balance_part) + len(add_part)))
-                        spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
 
                         success_msg = (
                             f"✨ **Now OTP**\n"
@@ -688,8 +675,8 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             f"📱 Number: {masked_number}\n"
                             f"🌍 Country: {country_name}\n"
                             f"🎯 Service: {service_name}\n"
-                            f"👤 User: {user_data.get('name', 'User')}\n"
-                            f"{spaced_line}\n\n"
+                            f"👤 User: {user_name}\n"
+                            f"💰 Balance Add: +{otp_rate:.2f} BDT\n\n"
                             f" Otp Code : `{clean_otp}`\n\n"
                             f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
                             f"🎁 প্রতি ওটিপিতে ফ্রিতে {ref_bonus:.2f} টাকা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
@@ -724,16 +711,10 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     rand_name = random.choice(fake_names)
     rand_service = random.choice(services_list)
     rand_country = random.choice(countries_list)
-    rand_balance = round(random.uniform(10.50, 450.00), 2)
     rand_otp = str(random.randint(10000, 99999))
 
     fake_num = "+" + "".join([str(random.randint(0, 9)) for _ in range(11)])
     masked_number = "XXXXX" + fake_num[-5:]
-
-    balance_part = f"💰 Balance: {rand_balance:.2f} BDT"
-    add_part = f"+{otp_rate:.2f} BDT"
-    space_count = max(1, 45 - (len(balance_part) + len(add_part)))
-    spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
 
     fake_msg = (
         f"✨ **Now OTP**\n"
@@ -742,7 +723,7 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
         f"🌍 Country: {rand_country}\n"
         f"🎯 Service: {rand_service}\n"
         f"👤 User: {rand_name}\n"
-        f"{spaced_line}\n\n"
+        f"💰 Balance Add: +{otp_rate:.2f} BDT\n\n"
         f" Otp Code : `{rand_otp}`\n\n"
         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
         f"🎁 প্রতি ওটিপিতে ফ্রিতে {ref_bonus:.2f} টাকা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
