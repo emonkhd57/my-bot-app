@@ -12,7 +12,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import firebase_admin
 from firebase_admin import credentials, firestore
-import httpx  # রিকোয়েস্ট ব্লক এড়ানোর জন্য অসিনক্রোনাস ক্লায়েন্ট
+import httpx
 import openpyxl
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
@@ -23,13 +23,13 @@ logger = logging.getLogger(__name__)
 
 LOCAL_PROCESSED_OTPS = set()
 
-# ফায়ারবেস রিড কমানোর জন্য ক্যাশ ভ্যারিয়েবল (Global Cache)
+# Global Cache Variables
 CACHE_SETTINGS = None
 CACHE_PROVIDERS = None
 LAST_CACHE_TIME = 0
-CACHE_DURATION = 300  # ৫ মিনিট (৩০০ সেকেন্ড) পর পর ফায়ারবেস চেক করবে
+CACHE_DURATION = 300  # ৫ মিনিট ক্যাশ থাকবে
 
-if sys.platform >= 'win32':
+if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 else:
     try:
@@ -49,7 +49,7 @@ def get_premium_flag(name):
     return COUNTRY_FLAGS.get(clean_name, "🏳️")
 
 BOT_TOKEN = os.getenv('TELEGRAM_TOKEN')
-ADMIN_ID = int(os.getenv('ADMIN_ID'))
+ADMIN_ID = int(os.getenv('ADMIN_ID', 0))
 OTP_GROUP_ID = "-1003656135640"
 OTP_GROUP_URL = "https://t.me/emotp100"       
 MAIN_CHANNEL_URL = "https://t.me/helptg100"   
@@ -73,14 +73,13 @@ def get_service_emoji(service_name):
     elif "twitter" in srv or "x" in srv: return "🐦"
     else: return "🎯"
 
-# ফায়ারবেস রিড অপ্টিমাইজড ফাংশন
+# 🔥 Firebase Read Optimized Cache Handler
 def update_cache_if_expired(force=False):
     global CACHE_SETTINGS, CACHE_PROVIDERS, LAST_CACHE_TIME
     current_time = time.time()
     
     if force or (current_time - LAST_CACHE_TIME > CACHE_DURATION) or CACHE_SETTINGS is None:
         try:
-            # সেটিংস রিড
             settings_ref = db.collection('settings').document('config').get()
             if settings_ref.exists:
                 data = settings_ref.to_dict()
@@ -92,7 +91,6 @@ def update_cache_if_expired(force=False):
                 CACHE_SETTINGS = {'otp_rate': 0.70, 'min_withdraw': 110.0, 'countries': {}, 'services': {}, 'fake_otp_enabled': False}
                 db.collection('settings').document('config').set(CACHE_SETTINGS)
             
-            # প্রোভাইডার রিড
             providers = db.collection('api_providers').where('is_active', '==', True).get()
             CACHE_PROVIDERS = [p.to_dict() for p in providers]
             
@@ -319,7 +317,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.message.reply_text("✅ ব্যালেন্স সফলভাবে কেটে নেওয়া হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
         elif action == 'broadcast':
-            users = db.collection('users').stream()
+            users = db.collection('users').select(['id']).stream()
             count = 0
             for u in users:
                 try: 
@@ -463,13 +461,18 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         keyboard.append([InlineKeyboardButton("❌ ক্লোজ", callback_data="cancel_action")])
         await update.message.reply_text(msg_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         
+    # 🔥 OPTIMIZED EXCEL COUNT (১০০০০ রিড থেকে ১টি রিড)
     elif text == "📊 Excel Numbers" and user_id == ADMIN_ID:
-        available_count = len(db.collection('excel_numbers').where('status', '==', 'available').get())
-        active_count = len(db.collection('excel_numbers').where('status', '==', 'active').get())
+        available_query = db.collection('excel_numbers').where('status', '==', 'available').count()
+        active_query = db.collection('excel_numbers').where('status', '==', 'active').count()
+        
+        available_count = available_query.get()[0][0].value
+        active_count = active_query.get()[0][0].value
+        
         xl_text = (
             f"📊 **Excel Numbers Control Panel**\n━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🟢 বিক্রয়ের জন্য রেডি নাম্বার: {available_count} টি\n"
-            f"⏳ ওটিপির জন্য ওয়েटिंग নাম্বার: {active_count} টি\n\n"
+            f"⏳ ওটিপির জন্য ওয়েটিং নাম্বার: {active_count} টি\n\n"
         )
         kbd = [
             [InlineKeyboardButton("📤 Upload Excel File", callback_data="xl_upload_init")],
@@ -478,37 +481,31 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         ]
         await update.message.reply_text(xl_text, reply_markup=InlineKeyboardMarkup(kbd), parse_mode="Markdown")
 
+    # 🔥 OPTIMIZED TOP 10 USERS (১০,০০০ রিড থেকে ১০টি রিড)
     elif text == "📊 Top 10 OTP (24h)" and user_id == ADMIN_ID:
-        orders = db.collection('orders').where('status', '==', 'completed').stream()
-        user_counts = {}
-        for o in orders:
-            od = o.to_dict()
-            uid = od.get('user_id')
-            user_counts[uid] = user_counts.get(uid, 0) + 1
-        sorted_users = sorted(user_counts.items(), key=lambda item: item[1], reverse=True)[:10]
-        if not sorted_users:
-            await update.message.reply_text("📊 গত ২৪ ঘণ্টায় কোনো সফল ওটিপি ট্রানজেকশন হয়নি।")
+        top_users = db.collection('users').order_by('total_otp', direction=firestore.Query.DESCENDING).limit(10).get()
+        if not top_users:
+            await update.message.reply_text("📊 কোনো ওটিপি ট্রানজেকশন ডাটা পাওয়া যায়নি।")
             return
-        board_text = "📊 **Top 10 OTP Users (Last 24 Hours):**\n━━━━━━━━━━━━━━━━━━━━━━\n"
-        for idx, (uid, count) in enumerate(sorted_users, 1):
-            u_doc = db.collection('users').document(str(uid)).get()
-            u_name = u_doc.to_dict().get('name', 'Unknown') if u_doc.exists else "Unknown User"
-            board_text += f"{idx}. 👤 {u_name} | ID: `{uid}` ➔ **{count} টি OTP**\n"
+        board_text = "📊 **Top 10 OTP Users:**\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        for idx, u_doc in enumerate(top_users, 1):
+            ud = u_doc.to_dict()
+            u_name = ud.get('name', 'Unknown User')
+            count = ud.get('total_otp', 0)
+            board_text += f"{idx}. 👤 {u_name} | ID: `{ud.get('id')}` ➔ **{count} টি OTP**\n"
         await update.message.reply_text(board_text, parse_mode="Markdown")
 
+    # 🔥 OPTIMIZED ALL USER LIST (Pagination Limit)
     elif text == "👥 All User List" and user_id == ADMIN_ID:
-        users = db.collection('users').get()
+        users = db.collection('users').limit(50).get()
         if not users:
             await update.message.reply_text("👥 বোটে কোনো রেজিস্টার্ড ইউজার নেই।")
             return
-        list_text = f"👥 **বোটে মোট রেজিস্টার্ড ইউজার:** {len(users)} জন\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        list_text = f"👥 **বোটে সাম্প্রতিক রেজিস্টার্ড ইউজার (Top 50):**\n━━━━━━━━━━━━━━━━━━━━━━\n"
         for idx, u in enumerate(users, 1):
             ud = u.to_dict()
             tg_username = ud.get('username', 'None')
-            if tg_username == "None" or not tg_username:
-                tg_username = "নাই"
-            else:
-                tg_username = f"@{tg_username}"
+            tg_username = "নাই" if tg_username == "None" or not tg_username else f"@{tg_username}"
                 
             list_text += (
                 f"{idx}. 📛 নাম: {ud.get('name', 'Unknown')}\n"
@@ -516,17 +513,14 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 f"   ✅ OTP: {ud.get('total_otp', 0)} টি | 💰 Bal: {ud.get('balance', 0.0):.2f} BDT\n"
                 f"──────────────────────\n"
             )
-            if len(list_text) > 3500:
-                await update.message.reply_text(list_text, parse_mode="Markdown")
-                list_text = ""
-        if list_text: await update.message.reply_text(list_text, parse_mode="Markdown")
+        await update.message.reply_text(list_text, parse_mode="Markdown")
 
     elif text == "👤 User Information" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'user_info_search'
         await update.message.reply_text("🔎 যে ইউজারের তথ্য দেখতে চান তার **Telegram User ID** অথবা **Username** লিখে পাঠান:", reply_markup=get_inline_cancel())
         
     elif text == "📨 Withdraw Request" and user_id == ADMIN_ID:
-        reqs = db.collection('withdraws').where('status', '==', 'pending').get()
+        reqs = db.collection('withdraws').where('status', '==', 'pending').limit(10).get()
         if not reqs:
             await update.message.reply_text("📥 কোনো পেন্ডিং উইথড্র রিকোয়েস্ট নেই।")
             return
@@ -695,12 +689,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("📝 প্রথমে যে সার্ভিসের জন্য নাম্বার আপলোড করতে চান তার নাম লিখুন (যেমন: `Facebook`):", reply_markup=get_inline_cancel())
     elif data == "xl_clear_db":
         await query.answer()
-        docs = db.collection('excel_numbers').get()
+        docs = db.collection('excel_numbers').limit(500).get()
         deleted = 0
         for doc in docs:
             db.collection('excel_numbers').document(doc.id).delete()
             deleted += 1
-        await query.edit_message_text(f"🗑️ এক্সেল ডাটাবেজ থেকে মোট **{deleted}** টি নাম্বার রিমুভ করা হয়েছে।")
+        await query.edit_message_text(f"🗑️ এক্সেল ডাটাবেজ থেকে **{deleted}** টি নাম্বার রিমুভ করা হয়েছে।")
     elif data.startswith("toggle_api_"):
         await query.answer()
         api_id = data.split("_")[2]
@@ -795,7 +789,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.collection('excel_numbers').document(number).update({'status': 'active', 'user_id': user_id})
         else:
             active_apis = get_active_providers()
-            # অ্যাসিঙ্ক অসিনক্রোনাস কলিং
             async with httpx.AsyncClient() as client:
                 for active_api in active_apis:
                     try:
@@ -913,6 +906,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['usr_action'] = None
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
+# 🔥 OPTIMIZED REAL OTP CHECKER
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     active_apis = get_active_providers()
     if not active_apis: return
@@ -921,7 +915,6 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
         for active_api in active_apis:
             url = f"{active_api['base_url']}/success-otp"
             try:
-                # নন-ব্লকিং অসিনক্রোনাস রিকোয়েস্ট উইথ ৪ সেকেন্ড ফিক্সড টাইমআউট
                 response = await client.get(url, headers={"mauthapi": active_api['api_key']}, timeout=4.0)
                 data = response.json()
                 
@@ -938,9 +931,11 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         if otp_id in LOCAL_PROCESSED_OTPS: 
                             continue    
                         
+                        # Check Database Only If Local Cache Misses
                         if db.collection('processed_otps').document(otp_id).get().exists: 
                             LOCAL_PROCESSED_OTPS.add(otp_id)
                             continue
+                            
                         order_ref = db.collection('orders').document(number)
                         order = order_ref.get()
                         
@@ -968,6 +963,8 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             })
 
                             db.collection('processed_otps').document(otp_id).set({'timestamp': datetime.utcnow()})
+                            LOCAL_PROCESSED_OTPS.add(otp_id)
+
                             referrer_id = user_data.get('referred_by')
                             if referrer_id:
                                 db.collection('users').document(str(referrer_id)).update({
@@ -1005,32 +1002,26 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             order_ref.update({'status': 'completed'})
                             if order_data.get('source') == 'excel':
                                 db.collection('excel_numbers').document(number).update({'status': 'used'})
+                            break
             except: pass
 
+# 🔥 OPTIMIZED DATABASE-FREE FAKE OTP GENERATOR (একদম ১ বার যাবে, কোনো ৩০-৩০০ বার হবে না)
 async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
-    config = get_bot_settings()
-    if not config.get('fake_otp_enabled', False): return
+    # গ্লোবাল ক্যাশ থেকে ফেক স্ট্যাটাস চেক (ডাটাবেজ রিড ০)
+    config = CACHE_SETTINGS or {}
+    if not config.get('fake_otp_enabled', False): 
+        return
 
     fake_names = ["Sabbir", "Rahat", "Emon", "Tanvir", "Noyon", "Alamin", "Sujon", "Mim", "Riya", "Antor", "Ishrat"]
-    services_dict = config.get('services', {"Facebook": "fb"})
-    services_list = list(services_dict.keys()) if services_dict else ["Facebook"]
-    
-    countries_dict = config.get('countries', {})
-    countries_list = []
-    if countries_dict:
-        for srv, c_dict in countries_dict.items():
-            if isinstance(c_dict, dict):
-                countries_list.extend(list(c_dict.keys()))
-                
-    if not countries_list: 
-        countries_list = ["Ivory Coast", "Guinea", "Nigeria", "Bangladesh"]
+    fake_services = ["Facebook", "Telegram", "WhatsApp", "Gmail", "Imo", "TikTok"]
+    fake_countries = ["Ivory Coast", "Guinea", "Nigeria", "Bangladesh", "India"]
     
     otp_rate = config.get('otp_rate', 0.70)
     bot_username = (await context.bot.get_me()).username
     
     rand_name = random.choice(fake_names)
-    rand_service = random.choice(services_list)
-    rand_country = random.choice(countries_list)
+    rand_service = random.choice(fake_services)
+    rand_country = random.choice(fake_countries)
     rand_balance = round(random.uniform(10.50, 450.00), 2)
     rand_otp = str(random.randint(10000, 99999))
 
@@ -1057,9 +1048,9 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     group_buttons = [[InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)]]
     try: 
         await context.bot.send_message(chat_id=OTP_GROUP_ID, text=fake_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(group_buttons))
-    except: pass
+    except Exception as e:
+        logger.error(f"Error sending fake otp: {e}")
 
-# Render Liveness checking এর জন্য HEAD মেথড হ্যান্ডলার ও স্ট্যাটাস ২০০ রেসপন্স ফিক্সড করা হয়েছে
 class RenderServer(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -1077,12 +1068,12 @@ def run_built_in_server():
     HTTPServer(('0.0.0.0', port), RenderServer).serve_forever()
 
 def main():
-    # প্রথমবার চালুর সময় গ্লোবাল ক্যাশ লোড করা
     update_cache_if_expired(force=True)
     
     threading.Thread(target=run_built_in_server, daemon=True).start()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
+    # ব্যাকগ্রাউন্ড টাস্ক শিডিউল
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
     app.job_queue.run_repeating(fake_otp_generator, interval=600, first=10)
     
