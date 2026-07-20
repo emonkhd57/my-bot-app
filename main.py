@@ -48,6 +48,51 @@ if not firebase_admin._apps:
 
 db = firestore.client()
 
+# ক্যাশ স্টোরেজ (অতিরিক্ত ডাটাবেজ রিড বন্ধ করার জন্য)
+_CACHE = {
+    "settings": None,
+    "settings_time": 0,
+    "providers": None,
+    "providers_time": 0
+}
+
+def get_bot_settings():
+    global _CACHE
+    current_time = datetime.utcnow().timestamp()
+    if _CACHE["settings"] and (current_time - _CACHE["settings_time"] < 300):
+        return _CACHE["settings"]
+
+    settings_ref = db.collection('settings').document('config').get()
+    if settings_ref.exists:
+        data = settings_ref.to_dict()
+        if 'services' not in data: data['services'] = {}
+        if 'countries' not in data: data['countries'] = {}
+        if 'fake_otp_enabled' not in data: data['fake_otp_enabled'] = False
+        _CACHE["settings"] = data
+        _CACHE["settings_time"] = current_time
+        return data
+    else:
+        default_config = {
+            'otp_rate': 0.70, 'min_withdraw': 110.0,
+            'countries': {}, 'services': {}, 'fake_otp_enabled': False
+        }
+        db.collection('settings').document('config').set(default_config)
+        _CACHE["settings"] = default_config
+        _CACHE["settings_time"] = current_time
+        return default_config
+
+def get_active_providers():
+    global _CACHE
+    current_time = datetime.utcnow().timestamp()
+    if _CACHE["providers"] and (current_time - _CACHE["providers_time"] < 300):
+        return _CACHE["providers"]
+
+    providers = db.collection('api_providers').where('is_active', '==', True).get()
+    prov_list = [p.to_dict() for p in providers]
+    _CACHE["providers"] = prov_list
+    _CACHE["providers_time"] = current_time
+    return prov_list
+
 def get_service_emoji(service_name):
     srv = service_name.lower()
     if "telegram" in srv: return "✈️"
@@ -59,26 +104,6 @@ def get_service_emoji(service_name):
     elif "instagram" in srv or "ig" in srv: return "📸"
     elif "twitter" in srv or "x" in srv: return "🐦"
     else: return "🎯"
-
-def get_active_providers():
-    providers = db.collection('api_providers').where('is_active', '==', True).get()
-    return [p.to_dict() for p in providers]
-
-def get_bot_settings():
-    settings_ref = db.collection('settings').document('config').get()
-    if settings_ref.exists:
-        data = settings_ref.to_dict()
-        if 'services' not in data: data['services'] = {}
-        if 'countries' not in data: data['countries'] = {}
-        if 'fake_otp_enabled' not in data: data['fake_otp_enabled'] = False
-        return data
-    else:
-        default_config = {
-            'otp_rate': 0.70, 'min_withdraw': 110.0,
-            'countries': {}, 'services': {}, 'fake_otp_enabled': False
-        }
-        db.collection('settings').document('config').set(default_config)
-        return default_config
 
 def get_main_menu(user_id):
     keyboard = [["🎭 Number নিন", "💸 Balance"], ["💰 Withdraw", "🎁 My Referrals"], ["🧐 Support"]]
@@ -142,11 +167,13 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if action == 'set_rate':
             try:
                 db.collection('settings').document('config').update({'otp_rate': float(text)})
+                _CACHE["settings"] = None # ক্যাশ রিসেট
                 await update.message.reply_text(f"✅ ওটিপি রেট সফলভাবে `{text} BDT` করা হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
         elif action == 'set_min_w':
             try:
                 db.collection('settings').document('config').update({'min_withdraw': float(text)})
+                _CACHE["settings"] = None
                 await update.message.reply_text(f"✅ মিনিমাম উইথড্র `{text} BDT` করা হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
         elif action == 'add_service':
@@ -157,6 +184,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 services_dict = config.get('services', {})
                 services_dict[service_name] = service_code
                 db.collection('settings').document('config').update({'services': services_dict})
+                _CACHE["settings"] = None
                 await update.message.reply_text(f"✅ সার্ভিস সফলভাবে যুক্ত হয়েছে: **{service_name}**")
             except: await update.message.reply_text("❌ কোনো ত্রুটি হয়েছে।")
         elif action == 'add_country_input':
@@ -176,6 +204,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                         
                     countries_dict[srv_target][c_name] = {"code": c_code.lower(), "flag": premium_flag}
                     db.collection('settings').document('config').update({'countries': countries_dict})
+                    _CACHE["settings"] = None
                     await update.message.reply_text(f"✅ {srv_target} সার্ভিসের ভেতরে দেশ সফলভাবে যুক্ত হয়েছে: {premium_flag} {c_name} (Range: {c_code})")
                 else:
                     await update.message.reply_text("❌ ফরম্যাট ভুল। উদাহরণ: `Ivory Coast 225079`")
@@ -228,6 +257,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             db.collection('api_providers').document(prov_id).set({
                 'id': prov_id, 'name': api_name, 'api_key': api_key, 'base_url': base_url, 'is_active': False
             })
+            _CACHE["providers"] = None
             await update.message.reply_text(f"✅ **{api_name}** এপিআই সফলভাবে যুক্ত হয়েছে!")
             
         elif action == 'user_info_search':
@@ -406,6 +436,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         current_status = config.get('fake_otp_enabled', False)
         new_status = not current_status
         db.collection('settings').document('config').update({'fake_otp_enabled': new_status})
+        _CACHE["settings"] = None
         status_text = "চালু 🟢" if new_status else "বন্ধ 🔴"
         await update.message.reply_text(f"📢 ফেক ওটিপি লুপটি সফলভাবে **{status_text}** করা হয়েছে।", reply_markup=get_admin_menu())
 
@@ -651,6 +682,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 del countries[srv_name]
                 
             db.collection('settings').document('config').update({'countries': countries})
+            _CACHE["settings"] = None
             await query.edit_message_text(f"✅ **{srv_name}** সার্ভিস থেকে **{c_name}** দেশটি সফলভাবে রিমুভ করা হয়েছে।")
         else:
             await query.edit_message_text("❌ দেশটি পাওয়া যায়নি বা ইতিমধ্যে রিমুভ হয়েছে।")
@@ -676,11 +708,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if api_doc.exists:
             current_status = api_doc.to_dict().get('is_active', False)
             api_ref.update({'is_active': not current_status})
+            _CACHE["providers"] = None
         await query.edit_message_text("✅ এপিআই প্রোভাইডারের সক্রিয়তা স্ট্যাটাস পরিবর্তিত হয়েছে।")
     elif data.startswith("del_api_"):
         await query.answer()
         api_id = data.split("_")[2]
         db.collection('api_providers').document(api_id).delete()
+        _CACHE["providers"] = None
         await query.edit_message_text("🗑️ এপিআই প্রোভাইডার সফলভাবে রিমুভ করা হয়েছে।")
     elif data == "add_new_api":
         await query.answer()
@@ -694,6 +728,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if s_name in services:
             del services[s_name]
             db.collection('settings').document('config').update({'services': services})
+            _CACHE["settings"] = None
             await query.edit_message_text(f"✅ **{s_name}** সার্ভিসটি সফলভাবে রিমুভ করা হয়েছে।")
     elif data.startswith("add_c_srv_"):
         await query.answer()
@@ -751,7 +786,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         source_type = 'excel'
         provider_id_used = 'excel'
         
-        # অপ্টিমাইজড লিমিট কুয়েরি (অতিরিক্ত রিড এড়ানোর জন্য)
         xl_num_query = db.collection('excel_numbers').where('service_code', '==', s_code).where('country_code', '==', c_code).where('status', '==', 'available').limit(1).get()
         
         if xl_num_query:
@@ -872,15 +906,31 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['usr_action'] = None
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
-# সম্পূর্ণ ফিক্সড এবং অপ্টিমাইজড ওটিপি চেকার ব্যাকগ্রাউন্ড জব (এখানেই অতিরিক্ত রিড হতো)
-async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
-    # ভ্যাজাল ফিক্সড: পুরো কালেকশন স্ট্রিম না করে শুধুমাত্র প্রয়োজনীয় ফিল্ড ও সীমিত অর্ডার কুয়েরি করা হচ্ছে
-    active_orders_ref = db.collection('orders').where('status', '==', 'active').limit(100).get()
-    
-    if not active_orders_ref:
-        return  # কোনো active অর্ডার না থাকলে এক ফোঁটাও ডাটাবেজ রিড হবে না!
+# ইন-মেমোরি গ্লোবাল লাইভ অর্ডার স্টোরেজ (on_snapshot এর মাধ্যমে আপডেট হবে)
+REALTIME_ACTIVE_ORDERS = {}
 
-    active_orders = {doc.id: doc.to_dict() for doc in active_orders_ref}
+def on_orders_snapshot(col_snapshot, changes, read_time):
+    global REALTIME_ACTIVE_ORDERS
+    for doc in col_snapshot:
+        REALTIME_ACTIVE_ORDERS[doc.id] = doc.to_dict()
+    # ডিলিট হওয়া অর্ডারগুলো মেমোরি থেকে সরিয়ে ফেলা
+    current_doc_ids = {doc.id for doc in col_snapshot}
+    for doc_id in list(REALTIME_ACTIVE_ORDERS.keys()):
+        if doc_id not in current_doc_ids:
+            del REALTIME_ACTIVE_ORDERS[doc_id]
+
+# রিয়েল-টাইম লিসেনার ব্যাকগ্রাউন্ডে চালু করা (জিরো রিড অপ্টিমাইজেশন)
+def setup_firestore_listener():
+    try:
+        db.collection('orders').where('status', '==', 'active').on_snapshot(on_orders_snapshot)
+    except Exception as e:
+        print(f"Snapshot listener error: {e}")
+
+# অপ্টিমাইজਡ চেক ওটিপি ফাংশন (on_snapshot মেমোরি থেকে চেক করবে, কোনো এক্সট্রা রিড নেই!)
+async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
+    global REALTIME_ACTIVE_ORDERS
+    if not REALTIME_ACTIVE_ORDERS:
+        return  # কোনো অর্ডার না থাকলে রিড সম্পূর্ণ শূন্য!
 
     active_apis = get_active_providers()
     if not active_apis: 
@@ -902,10 +952,10 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                     number = str(latest_otp['number'])
                     if not number.startswith("+"): number = "+" + number
                     
-                    if number not in active_orders:
+                    if number not in REALTIME_ACTIVE_ORDERS:
                         continue  
 
-                    order_data = active_orders[number]
+                    order_data = REALTIME_ACTIVE_ORDERS[number]
                     if order_data.get('source') == 'api' and order_data.get('provider_id') != active_api['id']:
                         continue
                         
@@ -982,7 +1032,6 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
 async def auto_cleanup_expired_numbers(context: ContextTypes.DEFAULT_TYPE):
     try:
         ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
-        # অতিরিক্ত রিড এড়ানোর জন্য লিমিট যুক্ত করা হলো
         expired_orders = db.collection('orders').where('status', '==', 'active').where('timestamp', '<=', ten_minutes_ago).limit(50).stream()
         
         for order in expired_orders:
@@ -1065,6 +1114,10 @@ def run_built_in_server():
 
 def main():
     threading.Thread(target=run_built_in_server, daemon=True).start()
+    
+    # রিয়েল-টাইম ফায়ারস্টোর লিসেনার স্টার্ট করা হলো
+    setup_firestore_listener()
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
@@ -1076,7 +1129,7 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_inputs))
     
-    print("Bot Running successfully...")
+    print("Bot Running successfully with on_snapshot & caching...")
     app.run_polling(close_loop=False)
 
 if __name__ == '__main__':
