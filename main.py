@@ -68,13 +68,15 @@ def get_bot_settings():
         if 'services' not in data: data['services'] = {}
         if 'countries' not in data: data['countries'] = {}
         if 'fake_otp_enabled' not in data: data['fake_otp_enabled'] = False
+        if 'refer_commission' not in data: data['refer_commission'] = 0.10
         _CACHE["settings"] = data
         _CACHE["settings_time"] = current_time
         return data
     else:
         default_config = {
             'otp_rate': 0.70, 'min_withdraw': 110.0,
-            'countries': {}, 'services': {}, 'fake_otp_enabled': False
+            'countries': {}, 'services': {}, 'fake_otp_enabled': False,
+            'refer_commission': 0.10
         }
         db.collection('settings').document('config').set(default_config)
         _CACHE["settings"] = default_config
@@ -120,8 +122,8 @@ def get_admin_menu():
         ["⚙️ Add Country", "🗑️ Remove Country"],
         ["🔌 Manage APIs", "👤 User Information"],
         ["📊 Top 10 OTP (24h)", f"📢 Fake OTP: {fake_status}"],
-        ["📊 Excel Numbers", "📢 ব্রডকাস্ট"],
-        ["🔙 মেইন মেনু"]
+        ["🎁 Refer Commission", "📊 Excel Numbers"],
+        ["📢 ব্রডকাস্ট", "🔙 মেইন মেনু"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -155,7 +157,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ দুঃখিত, আপনাকে এই বোট থেকে ব্যান করা হয়েছে।")
             return
     
-    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম।\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
+    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম።\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
     await update.message.reply_text(text, reply_markup=get_main_menu(user_id))
 
 async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -167,7 +169,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if action == 'set_rate':
             try:
                 db.collection('settings').document('config').update({'otp_rate': float(text)})
-                _CACHE["settings"] = None # ক্যাশ রিসেট
+                _CACHE["settings"] = None 
                 await update.message.reply_text(f"✅ ওটিপি রেট সফলভাবে `{text} BDT` করা হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
         elif action == 'set_min_w':
@@ -176,6 +178,13 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 _CACHE["settings"] = None
                 await update.message.reply_text(f"✅ মিনিমাম উইথড্র `{text} BDT` করা হয়েছে।")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
+        elif action == 'set_ref_comm':
+            try:
+                comm_val = float(text)
+                db.collection('settings').document('config').update({'refer_commission': comm_val})
+                _CACHE["settings"] = None
+                await update.message.reply_text(f"✅ রেফার কমিশন সফলভাবে `{comm_val} BDT` করা হয়েছে।")
+            except: await update.message.reply_text("❌ ভুল ইনপুট। সঠিক সংখ্যা লিখুন।")
         elif action == 'add_service':
             try:
                 service_name = text.strip()
@@ -382,6 +391,11 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "⚙️ মিনিমাম উইথড্র" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'set_min_w'
         await update.message.reply_text("✍️ নতুন মিনিমাম উইথড্র লিমিট পাঠান:", reply_markup=get_inline_cancel())
+    elif text == "🎁 Refer Commission" and user_id == ADMIN_ID:
+        context.user_data['adm_action'] = 'set_ref_comm'
+        config = get_bot_settings()
+        curr_comm = config.get('refer_commission', 0.10)
+        await update.message.reply_text(f"✍️ বর্তমান রেফার কমিশন: `{curr_comm} BDT`\n\nনতুন রেফার কমিশন অ্যামাউন্ট লিখে পাঠান:", reply_markup=get_inline_cancel())
     elif text == "⚙️ Add Service" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'add_service'
         await update.message.reply_text("✍️ জাস্ট আপনার সার্ভিস এর নামটি লিখে পাঠান。\n\n✍️ যেমন: `Facebook`", reply_markup=get_inline_cancel())
@@ -497,24 +511,18 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not users:
             await update.message.reply_text("👥 বোটে কোনো রেজিস্টার্ড ইউজার নেই।")
             return
-        list_text = f"👥 **বোটে রেজিস্টার্ড ইউজার (সর্বশেষ ৫০ জন):**\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        
+        # মোট ইউজারের হিসাব বের করা
+        total_users_count = len(db.collection('users').get())
+        list_text = f"👥 **মোট ইউজার সংখ্যা:** `{total_users_count}` জন\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        
         for idx, u in enumerate(users, 1):
             ud = u.to_dict()
-            tg_username = ud.get('username', 'None')
-            if tg_username == "None" or not tg_username:
-                tg_username = "নাই"
-            else:
-                tg_username = f"@{tg_username}"
+            uid = ud.get('id')
+            balance = ud.get('balance', 0.0)
             
-            ref_count = len(ud.get('referrals', []))
-                
-            list_text += (
-                f"{idx}. 📛 নাম: {ud.get('name', 'Unknown')}\n"
-                f"   🆔 ID: `{ud.get('id')}` | 🔗 TG: {tg_username}\n"
-                f"   💰 Bal: {ud.get('balance', 0.0):.2f} BDT | 👥 Ref: {ref_count} জন\n"
-                f"   ✅ Total OTP Received: {ud.get('total_otp', 0)} টি\n"
-                f"──────────────────────\n"
-            )
+            list_text += f"{idx}. ID: `{uid}` | Balance: `{balance:.2f} BDT`\n"
+            
             if len(list_text) > 3500:
                 await update.message.reply_text(list_text, parse_mode="Markdown")
                 list_text = ""
@@ -586,16 +594,18 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user_data = db.collection('users').document(str(user_id)).get().to_dict() or {}
         refs = user_data.get('referrals', [])
         ref_count = len(refs)
+        config = get_bot_settings()
+        comm_val = config.get('refer_commission', 0.10)
         bot_uname = (await context.bot.get_me()).username
         refer_text = (
             f"🎁 ⚠️ **ধামাকা রেফার অফার! আনলিমিটেড ইনকাম করুন!** ⚠️ 🎁\n\n"
             f"👤 **Total Refer:** {ref_count} জন\n"
-            f"😃 **Total Refer Income:** {ref_count * 0.10:.2f} BDT\n\n"
+            f"😃 **Total Refer Income:** {ref_count * comm_val:.2f} BDT\n\n"
             f"🔗 **আপনার রেফার লিংক (কপি করতে ক্লিক করুন):**\n"
             f"`https://t.me/{bot_uname}?start={user_id}`\n\n"
             f"──────────────────────\n"
             f"🔥 **রেফারের সুবিধা:**\n"
-            f"💸 প্রতি সফল ওটিপিতে আপনার রেফারকৃত ইউজারের কাছ থেকে পাবেন লাইফটাইম কমিশন ০.১০ পয়সা! এখনই শেয়ার করুন! 🎉"
+            f"💸 প্রতি সফল ওটিপিতে আপনার রেফারকৃত ইউজারের কাছ থেকে পাবেন লাইফটাইম কমিশন {comm_val} টাকা! এখনই শেয়ার করুন! 🎉"
         )
         await update.message.reply_text(refer_text, parse_mode="Markdown")
     elif text == "🧐 Support":
@@ -906,31 +916,27 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['usr_action'] = None
         await query.edit_message_text("❌ **অনুরোধ বাতিল করা হয়েছে।**\nমূল মেনুতে ফিরে আসা হয়েছে।")
 
-# ইন-মেমোরি গ্লোবাল লাইভ অর্ডার স্টোরেজ (on_snapshot এর মাধ্যমে আপডেট হবে)
 REALTIME_ACTIVE_ORDERS = {}
 
 def on_orders_snapshot(col_snapshot, changes, read_time):
     global REALTIME_ACTIVE_ORDERS
     for doc in col_snapshot:
         REALTIME_ACTIVE_ORDERS[doc.id] = doc.to_dict()
-    # ডিলিট হওয়া অর্ডারগুলো মেমোরি থেকে সরিয়ে ফেলা
     current_doc_ids = {doc.id for doc in col_snapshot}
     for doc_id in list(REALTIME_ACTIVE_ORDERS.keys()):
         if doc_id not in current_doc_ids:
             del REALTIME_ACTIVE_ORDERS[doc_id]
 
-# রিয়েল-টাইম লিসেনার ব্যাকগ্রাউন্ডে চালু করা (জিরো রিড অপ্টিমাইজেশন)
 def setup_firestore_listener():
     try:
         db.collection('orders').where('status', '==', 'active').on_snapshot(on_orders_snapshot)
     except Exception as e:
         print(f"Snapshot listener error: {e}")
 
-# অপ্টিমাইজਡ চেক ওটিপি ফাংশন (on_snapshot মেমোরি থেকে চেক করবে, কোনো এক্সট্রা রিড নেই!)
 async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
     global REALTIME_ACTIVE_ORDERS
     if not REALTIME_ACTIVE_ORDERS:
-        return  # কোনো অর্ডার না থাকলে রিড সম্পূর্ণ শূন্য!
+        return  
 
     active_apis = get_active_providers()
     if not active_apis: 
@@ -946,6 +952,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
             if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
                 config = get_bot_settings()
                 otp_rate = config.get('otp_rate', 0.70)
+                ref_comm = config.get('refer_commission', 0.10)
                 bot_username = (await context.bot.get_me()).username
                 
                 for latest_otp in data['data']['otps']:
@@ -989,8 +996,8 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         if ref_user_ref.get().exists:
                             ref_ud = ref_user_ref.get().to_dict()
                             ref_user_ref.update({
-                                'balance': ref_ud.get('balance', 0.0) + 0.10,
-                                'total_income': ref_ud.get('total_income', 0.0) + 0.10
+                                'balance': ref_ud.get('balance', 0.0) + ref_comm,
+                                'total_income': ref_ud.get('total_income', 0.0) + ref_comm
                             })
 
                     masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
@@ -1100,6 +1107,10 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     try: 
         await context.bot.send_message(chat_id=OTP_GROUP_ID, text=fake_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([group_buttons]))
     except: pass
+    
+    # প্রতিবার ফেক ওটিপি সেন্ড হওয়ার পর পরবর্তী ফেক ওটিপির জন্য ১ থেকে ৩ মিনিটের মধ্যে রেন্ডম টাইম সেট করা হচ্ছে
+    next_delay = random.randint(60, 180) # ৬০ সেকেন্ড (১ মিনিট) থেকে ১৮০ সেকেন্ড (৩ মিনিট)
+    context.job_queue.run_once(fake_otp_generator, when=next_delay)
 
 class RenderServer(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -1115,14 +1126,15 @@ def run_built_in_server():
 def main():
     threading.Thread(target=run_built_in_server, daemon=True).start()
     
-    # রিয়েল-টাইম ফায়ারস্টোর লিসেনার স্টার্ট করা হলো
     setup_firestore_listener()
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
     app.job_queue.run_repeating(auto_cleanup_expired_numbers, interval=60, first=10)
-    app.job_queue.run_repeating(fake_otp_generator, interval=600, first=10)
+    
+    # প্রথমবার ফেক ওটিপি জেনারেটর চালুর জন্য ৩০ সেকেন্ড ডিলে দিয়ে ইনিশিয়েট করা হলো
+    app.job_queue.run_once(fake_otp_generator, when=30)
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(callback_handler))
