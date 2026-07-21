@@ -6,7 +6,7 @@ import sys
 import random
 import io
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import firebase_admin
@@ -490,7 +490,9 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text(xl_text, reply_markup=InlineKeyboardMarkup(kbd), parse_mode="Markdown")
 
     elif text == "📊 Top 10 OTP (24h)" and user_id == ADMIN_ID:
-        orders = db.collection('orders').where('status', '==', 'completed').stream()
+        now = datetime.utcnow()
+        today_midnight = datetime.combine(now.date(), time.min)
+        orders = db.collection('orders').where('status', '==', 'completed').where('timestamp', '>=', today_midnight).stream()
         user_counts = {}
         for o in orders:
             od = o.to_dict()
@@ -498,9 +500,9 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             user_counts[uid] = user_counts.get(uid, 0) + 1
         sorted_users = sorted(user_counts.items(), key=lambda item: item[1], reverse=True)[:10]
         if not sorted_users:
-            await update.message.reply_text("📊 গত ২৪ ঘণ্টায় কোনো সফল ওটিপি ট্রানজেকশন হয়নি।")
+            await update.message.reply_text("📊 আজকের রাত ১২:০০ টা থেকে এই পর্যন্ত কোনো সফল ওটিপি ট্রানজেকশন হয়নি।")
             return
-        board_text = "📊 **Top 10 OTP Users (Last 24 Hours):**\n━━━━━━━━━━━━━━━━━━━━━━\n"
+        board_text = f"📊 **Top 10 OTP Users (Today from 12:00 AM):**\n━━━━━━━━━━━━━━━━━━━━━━\n"
         for idx, (uid, count) in enumerate(sorted_users, 1):
             u_doc = db.collection('users').document(str(uid)).get()
             u_name = u_doc.to_dict().get('name', 'Unknown') if u_doc.exists else "Unknown User"
@@ -824,8 +826,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🔄 <b>Waiting for OTP...</b>"
             )
             
+            # একই নাম্বারের ৩টি আলাদা কপি বাটন নিচে যুক্ত করা হলো
             action_buttons = [
-                [InlineKeyboardButton(text=f"{number}", copy_text={"text": str(number)})],
+                [
+                    InlineKeyboardButton(text=f"{number}", copy_text={"text": str(number)}),
+                    InlineKeyboardButton(text=f"{number}", copy_text={"text": str(number)}),
+                    InlineKeyboardButton(text=f"{number}", copy_text={"text": str(number)})
+                ],
                 [
                     InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
                     InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")
@@ -1052,7 +1059,10 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                     except: 
                         pass
                     
-                    db.collection('orders').document(number).delete()
+                    db.collection('orders').document(number).update({
+                        'status': 'completed',
+                        'timestamp': datetime.utcnow()
+                    })
                     if order_data.get('source') == 'excel':
                         db.collection('excel_numbers').document(number).delete()
         except: 
