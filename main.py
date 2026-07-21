@@ -454,7 +454,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         _CACHE["settings"] = None
         status_text = "চালু 🟢" if new_status else "বন্ধ 🔴"
         await update.message.reply_text(f"📢 ফেক ওটিপি লুপটি সফলভাবে **{status_text}** করা হয়েছে।", reply_markup=get_admin_menu())
-
+        
     elif text == "🔌 Manage APIs" and user_id == ADMIN_ID:
         providers = db.collection('api_providers').stream()
         keyboard = []
