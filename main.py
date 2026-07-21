@@ -48,7 +48,6 @@ if not firebase_admin._apps:
 
 db = firestore.client()
 
-# ক্যাশ স্টোরেজ (অতিরিক্ত ডাটাবেজ রিড বন্ধ করার জন্য)
 _CACHE = {
     "settings": None,
     "settings_time": 0,
@@ -172,7 +171,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             try:
                 db.collection('settings').document('config').update({'otp_rate': float(text)})
                 _CACHE["settings"] = None 
-                await update.message.reply_text(f"✅ ওটিপি রেট সফলভাবে `{text} BDT` করা হয়েছে।")
+                await update.message.reply_text(f"✅ ওটিপি রেট সফলভাবে `{text} BDT` করা হয়েছে.")
             except: await update.message.reply_text("❌ ভুল ইনপুট।")
         elif action == 'set_min_w':
             try:
@@ -343,7 +342,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         num_pattern = r'^(?:\+88|88)?(01[3-9]\d{8})$'
         match = re.search(num_pattern, text.strip())
         if not match:
-            await update.message.reply_text("❌ ভুল নাম্বার! অনুগ্রহ করে সঠিক বিকাশ/নগদ ১১ ডিজিটের মোবাইল নাম্বারটি পেস্ট করুন বা লিখুন:")
+            await update.message.reply_text("❌ ভুল নাম্বার! অনুগ্রহ করে সঠিক বিকাশ/নগদ ১১ ডিজিটের নাম্বারটি পেস্ট করুন বা লিখুন:")
             return
         context.user_data['w_num'] = match.group(1)
         context.user_data['usr_action'] = 'w_amount_input'
@@ -873,7 +872,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await context.bot.send_message(chat_id=wd_data['user_id'], text=paid_sms)
         except: pass
         
-        # স্টাইলিশ ও প্রিমিয়াম উইথড্র নোটিশ (শুধুমাত্র PAID হলে গ্রুপে যাবে)
         bot_username = (await context.bot.get_me()).username
         group_withdraw_notice = (
             f"💸 <b>NEW WITHDRAW PAID SUCCESSFUL</b> 💸\n"
@@ -1025,20 +1023,20 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                             })
 
                     masked_number = "XXXXX" + number[-5:] if len(number) > 5 else number
-                    balance_part = f"💰 Balance: {cur_bal:.2f} BDT"
+                    balance_part = f"Balance: {cur_bal:.2f} BDT"
                     add_part = f"+{otp_rate:.2f} BDT"
                     space_count = max(1, 45 - (len(balance_part) + len(add_part)))
-                    spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
+                    spaced_line = f"💰 {balance_part}{' ' * space_count}{add_part}"
 
                     success_msg = (
-                        f"✨ **Now OTP**\n"
+                        f"✨ <b>Now OTP</b>\n"
                         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                        f"📱 Number: {masked_number}\n"
+                        f"📱 Number: <code>{masked_number}</code>\n"
                         f"🌍 Country: {country_name}\n"
                         f"🎯 Service: {service_name}\n"
                         f"👤 User: {user_data.get('name', 'User')}\n"
                         f"{spaced_line}\n\n"
-                        f" Otp Code : `{clean_otp}`\n\n"
+                        f"Otp Code : <code>{clean_otp}</code>\n\n"
                         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
                         f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
                     )
@@ -1049,8 +1047,8 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                     ]
                     
                     try:
-                        await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="Markdown")
-                        await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([group_buttons]))
+                        await context.bot.send_message(chat_id=user_id, text=success_msg, parse_mode="HTML")
+                        await context.bot.send_message(chat_id=OTP_GROUP_ID, text=success_msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup([group_buttons]))
                     except: 
                         pass
                     
@@ -1107,20 +1105,20 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     fake_num = "+" + "".join([str(random.randint(0, 9)) for _ in range(11)])
     masked_number = "XXXXX" + fake_num[-5:]
 
-    balance_part = f"💰 Balance: {rand_balance:.2f} BDT"
+    balance_part = f"Balance: {rand_balance:.2f} BDT"
     add_part = f"+{otp_rate:.2f} BDT"
     space_count = max(1, 45 - (len(balance_part) + len(add_part)))
-    spaced_line = f"{balance_part}{' ' * space_count}{add_part}"
+    spaced_line = f"💰 {balance_part}{' ' * space_count}{add_part}"
 
     fake_msg = (
-        f"✨ **Now OTP**\n"
+        f"✨ <b>Now OTP</b>\n"
         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-        f"📱 Number: {masked_number}\n"
+        f"📱 Number: <code>{masked_number}</code>\n"
         f"🌍 Country: {rand_country}\n"
         f"🎯 Service: {rand_service}\n"
         f"👤 User: {rand_name}\n"
         f"{spaced_line}\n\n"
-        f" Otp Code : `{rand_otp}`\n\n"
+        f"Otp Code : <code>{rand_otp}</code>\n\n"
         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
         f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
     )
@@ -1129,8 +1127,9 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
         InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)
     ]
     try: 
-        await context.bot.send_message(chat_id=OTP_GROUP_ID, text=fake_msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup([group_buttons]))
-    except: pass
+        await context.bot.send_message(chat_id=OTP_GROUP_ID, text=fake_msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup([group_buttons]))
+    except Exception as e:
+        print(f"Fake OTP Error: {e}")
     
     next_delay = random.randint(60, 180) 
     context.job_queue.run_once(fake_otp_generator, when=next_delay)
@@ -1163,7 +1162,7 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_inputs))
     
-    print("Bot Running successfully with on_snapshot & caching...")
+    print("Bot Running successfully with HTML parse mode fixed...")
     app.run_polling(close_loop=False)
 
 if __name__ == '__main__':
