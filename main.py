@@ -826,7 +826,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🔄 <b>Waiting for OTP...</b>"
             )
             
-            # একই নাম্বারের ৩টি আলাদা কপি বাটন নিচে যুক্ত করা হলো
             action_buttons = [
                 [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
                 [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
@@ -838,7 +837,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [
                     InlineKeyboardButton("🚫 বাতিল করুন", callback_data="cancel_action")
                 ]
-                                                              ]
+            ]
             
             await query.edit_message_text(text=num_box, reply_markup=InlineKeyboardMarkup(action_buttons), parse_mode="HTML")
             
@@ -983,7 +982,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                 bot_username = (await context.bot.get_me()).username
                 
                 for latest_otp in data['data']['otps']:
-                    number = str(latest_otp['number'])
+                    number = str(latest_otp.get('number', ''))
                     if not number.startswith("+"): number = "+" + number
                     
                     if number not in REALTIME_ACTIVE_ORDERS:
@@ -993,7 +992,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                     if order_data.get('source') == 'api' and order_data.get('provider_id') != active_api['id']:
                         continue
                         
-                    otp_id = f"proc_{number}_{latest_otp.get('id', hash(latest_otp.get('message', '')))}"
+                    otp_id = f"proc_{number}_{latest_otp.get('id', hash(str(latest_otp)))}"
                     
                     if db.collection('processed_otps').document(otp_id).get().exists: 
                         continue    
@@ -1001,7 +1000,22 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                     user_id = order_data['user_id']
                     service_name = order_data.get('service_name', 'Facebook')
                     country_name = order_data.get('country_name', 'Ivory Coast')
-                    clean_otp = "".join(re.findall(r'\d+', str(latest_otp['message'])))
+                    
+                    # ✅ এখানে প্যানেলের আসল কোড নিখুঁতভাবে রিড করার ফিক্স করা হয়েছে:
+                    # প্রথমে এপিআই থেকে সরাসরি code বা otp ফিল্ড খুঁজবে, না থাকলে মেসেজ থেকে সঠিক ৪-৬ ডিজিটের কোড বের করবে।
+                    raw_code_field = str(latest_otp.get('code', '')) or str(latest_otp.get('otp', ''))
+                    raw_msg = str(latest_otp.get('message', ''))
+                    
+                    if raw_code_field and raw_code_field.isdigit():
+                        clean_otp = raw_code_field
+                    else:
+                        # মেসেজ থেকে ভেরিফিকেশন কোড (সাধারণত ৪ থেকে ৬ ডিজিট) নিখুঁতভাবে এক্সট্রাক্ট করা
+                        digits_found = re.findall(r'\b\d{4,6}\b', raw_msg)
+                        if digits_found:
+                            clean_otp = digits_found[0]
+                        else:
+                            all_digits = "".join(re.findall(r'\d+', raw_msg))
+                            clean_otp = all_digits[-6:] if len(all_digits) >= 6 else all_digits
                     
                     user_ref = db.collection('users').document(str(user_id))
                     user_data = user_ref.get().to_dict() or {}
@@ -1170,7 +1184,7 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_inputs))
     
-    print("Bot Running successfully with HTML parse mode fixed...")
+    print("Bot Running successfully with OTP extraction and HTML parse mode fixed...")
     app.run_polling(close_loop=False)
 
 if __name__ == '__main__':
