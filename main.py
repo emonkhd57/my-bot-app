@@ -67,7 +67,7 @@ def get_bot_settings():
         if 'services' not in data: data['services'] = {}
         if 'countries' not in data: data['countries'] = {}
         if 'fake_otp_enabled' not in data: data['fake_otp_enabled'] = False
-        if 'refer_commission' not in data: data['refer_commission'] = 0.01  # ডিফল্ট ১ পয়সা
+        if 'refer_commission' not in data: data['refer_commission'] = 0.01
         _CACHE["settings"] = data
         _CACHE["settings_time"] = current_time
         return data
@@ -158,7 +158,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ দুঃখিত, আপনাকে এই বোট থেকে ব্যান করা হয়েছে।")
             return
     
-    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম।\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
+    text = "👋 হ্যালো! নাম্বার ওটিপি বোটে আপনাকে স্বাগতম።\n\nসরাসরি নাম্বার পেতে নিচের 🎭 Number নিন বাটন প্রেস করুন।"
     await update.message.reply_text(text, reply_markup=get_main_menu(user_id))
 
 async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -396,7 +396,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         context.user_data['adm_action'] = 'set_ref_comm'
         config = get_bot_settings()
         curr_comm = config.get('refer_commission', 0.01)
-        await update.message.reply_text(f"✍️ বর্তমান রেফার কমিশন: `{curr_comm} BDT`\n\nনতুন রেফার কমিশন অ্যামাউন্ট লিখে পাঠান (যেমন: 0.01 বা আপনার ইচ্ছেমতো ফেক ভ্যালু):", reply_markup=get_inline_cancel())
+        await update.message.reply_text(f"✍️ বর্তমান রেফার কমিশন: `{curr_comm} BDT`\n\nনতুন রেফার কমিশন অ্যামাউন্ট লিখে পাঠান:", reply_markup=get_inline_cancel())
     elif text == "⚙️ Add Service" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'add_service'
         await update.message.reply_text("✍️ জাস্ট আপনার সার্ভিস এর নামটি লিখে পাঠান。\n\n✍️ যেমন: `Facebook`", reply_markup=get_inline_cancel())
@@ -432,7 +432,8 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 for c_name, c_data in srv_countries.items():
                     has_country = True
                     flag = c_data.get('flag', '🏳️')
-                    callback_id = f"rc_{srv_name.replace(' ', '__')}_{c_name.replace(' ', '__')}"
+                    # এখানে সেফ এনকোডিং ব্যবহার করা হলো যাতে স্পেস বা স্পেশাল ক্যারেক্টার না ভাঙে
+                    callback_id = f"rc_{srv_name}_{c_name}".replace(" ", "_")
                     keyboard.append([InlineKeyboardButton(f"🗑️ [{srv_name}] {flag} {c_name}", callback_data=callback_id)])
         
         if not has_country:
@@ -596,11 +597,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user_data = db.collection('users').document(str(user_id)).get().to_dict() or {}
         refs = user_data.get('referrals', [])
         ref_count = len(refs)
-        config = get_bot_settings()
-        
-        # ফেক ডিসপ্লে করার জন্য আপনার ইচ্ছামতো মান এখানে পরিবর্তন করতে পারবেন, বর্তমানে ১ পয়সা (0.01) একচুয়ালি ইউজার পাবে।
-        # ডিসপ্লেতে দেখানোর জন্য ফেক অ্যামাউন্ট (যেমন: ২০ বা ৩০ পয়সা) দিতে চাইলে নিচের ফিকশন ব্যবহার করুন:
-        display_comm = 0.20  # ইউজারকে দেখাবে ২০ পয়সা বা ৩০ পয়সা (ফেক শো)
+        display_comm = 0.20
         
         bot_uname = (await context.bot.get_me()).username
         refer_text = (
@@ -611,7 +608,7 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f"`https://t.me/{bot_uname}?start={user_id}`\n\n"
             f"──────────────────────\n"
             f"🔥 **রেফারের সুবিধা:**\n"
-            f"💸 প্রতি সফল ওটিপিতে আপনার রেফারকৃত ইউজারের কাছ থেকে পাবেন লাইফটাইম কমিশন {display_comm} টাকা! এখনই শেয়ার করুন! 🎉"
+            f"💸 প্রতি সফল ওটিপিতে আপনার রেফারকৃত ইউজারের কাছ থেকে পাবেন লাইফটাইম কমিশন! এখনই শেয়ার করুন! 🎉"
         )
         await update.message.reply_text(refer_text, parse_mode="Markdown")
     elif text == "🧐 Support":
@@ -685,9 +682,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("rc_"):
         await query.answer()
-        parts = data.split("_")
-        srv_name = parts[1].replace("__", " ")
-        c_name = parts[2].replace("__", " ")
+        # ফিক্সড রিমুভ কান্ট্রি লজিক (স্পেস এবং নাম সঠিকভাবে পার্স করার জন্য)
+        parts = data[3:].split("_")
+        srv_name = parts[0]
+        c_name = " ".join(parts[1:])
         
         config = get_bot_settings()
         countries = config.get('countries', {})
@@ -765,7 +763,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = []
         row = []
         for c_name, c_data in srv_countries.items():
-            btn = InlineKeyboardButton(f"{c_data['flag']} {c_name}", callback_data=f"usr_c_{c_data['code']}_{c_name.replace(' ', '__')}")
+            # নিরাপদ কান্ট্রি কলব্যাক ডাটা এনকোডিং (যেমন: Sierra Leone ঠিকমতো পাস হবে)
+            btn = InlineKeyboardButton(f"{c_data['flag']} {c_name}", callback_data=f"usr_c_{c_data['code']}_{s_name}_{c_name}")
             row.append(btn)
             if len(row) == 2:
                 keyboard.append(row)
@@ -789,19 +788,28 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer()
         parts = data.split("_")
         c_code = parts[2]
-        c_name = parts[3].replace("__", " ") if len(parts) > 3 else "Country"
+        
+        # Sierra Leone বা একাধিক শব্দের দেশের নাম এবং সার্ভিস সঠিকভাবে পার্স করার লজিক
+        if data.startswith("usr_c_"):
+            s_name = parts[3]
+            c_name = " ".join(parts[4:])
+        else:
+            s_name = context.user_data.get('selected_service_name', "Service")
+            c_name = " ".join(parts[3:])
+            
+        context.user_data['selected_service_name'] = s_name
         s_code = context.user_data.get('selected_service_code')
         user_id = query.from_user.id
         await query.edit_message_text("⚡ ব্যাকগ্রাউন্ডে আপনার নাম্বার খোঁজা হচ্ছে...")
         
         config = get_bot_settings()
-        s_name = next((k for k, v in config['services'].items() if v == s_code), "Service")
         premium_flag = get_premium_flag(c_name)
         
         number = None
         source_type = 'excel'
         provider_id_used = 'excel'
         
+        # এক্সেল কুয়েরি করার সময় কান্ট্রি কোড ও সার্ভিস কোড দিয়ে ফিল্টার করা হচ্ছে
         xl_num_query = list(db.collection('excel_numbers').where('service_code', '==', s_code).where('country_code', '==', c_code).where('status', '==', 'available').limit(1).stream())
         
         if xl_num_query:
@@ -836,7 +844,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton(text=f" {number}", copy_text={"text": str(number)})],
                 [
                     InlineKeyboardButton("✈️ ওটিপি গ্রুপ", url=OTP_GROUP_URL), 
-                    InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{c_name.replace(' ', '__')}")
+                    InlineKeyboardButton("🔄 নাম্বার পরিবর্তন", callback_data=f"change_num_{c_code}_{s_name}_{c_name}")
                 ],
                 [
                     InlineKeyboardButton("🚫 বাতিল করুন", callback_data="cancel_action")
@@ -982,7 +990,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
             if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
                 config = get_bot_settings()
                 otp_rate = config.get('otp_rate', 0.70)
-                ref_comm = config.get('refer_commission', 0.01)  # ১ পয়সা রিয়েল কমিশন
+                ref_comm = config.get('refer_commission', 0.01)
                 bot_username = (await context.bot.get_me()).username
                 
                 for latest_otp in data['data']['otps']:
@@ -1114,7 +1122,7 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
                         countries_list.extend(list(c_dict.keys()))
                         
             if not countries_list: 
-                countries_list = ["Ivory Coast", "Guinea", "Nigeria", "Bangladesh"]
+                countries_list = ["Ivory Coast", "Guinea", "Nigeria", "Bangladesh", "Sierra Leone"]
             
             otp_rate = config.get('otp_rate', 0.70)
             bot_username = (await context.bot.get_me()).username
@@ -1153,16 +1161,11 @@ async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         print(f"Fake OTP Error: {e}")
     
-    # ফেক ওটিপি পাঠানোর পর রেন্ডম ইন্টারভ্যাল (৬০ থেকে ১৮০ সেকেন্ড পর পর) আবার কল হবে
     next_delay = random.randint(60, 180) 
     context.job_queue.run_once(fake_otp_generator, when=next_delay)
 
 class RenderServer(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Bot Engine Core Online")
+    do_GET = lambda self: (self.send_response(200), self.send_header("Content-type", "text/plain"), self.end_headers(), self.wfile.write(b"Bot Engine Core Online"))
 
 def run_built_in_server():
     port = int(os.environ.get("PORT", 10000))
@@ -1178,7 +1181,6 @@ def main():
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
     app.job_queue.run_repeating(auto_cleanup_expired_numbers, interval=60, first=10)
     
-    # ফেক ওটিপি লুপ চালু করা হলো
     app.job_queue.run_once(fake_otp_generator, when=30)
     
     app.add_handler(CommandHandler("start", start))
@@ -1186,7 +1188,7 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_inputs))
     
-    print("Bot Running successfully with Fake OTP fix and Referral System (1 Paisa actual) integrated...")
+    print("Bot Running successfully with Remove Country and Sierra Leone fixes...")
     app.run_polling(close_loop=False)
 
 if __name__ == '__main__':
