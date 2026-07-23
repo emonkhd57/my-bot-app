@@ -67,7 +67,7 @@ def get_bot_settings():
         if 'services' not in data: data['services'] = {}
         if 'countries' not in data: data['countries'] = {}
         if 'fake_otp_enabled' not in data: data['fake_otp_enabled'] = False
-        if 'refer_commission' not in data: data['refer_commission'] = 0.10
+        if 'refer_commission' not in data: data['refer_commission'] = 0.01  # ডিফল্ট ১ পয়সা
         _CACHE["settings"] = data
         _CACHE["settings_time"] = current_time
         return data
@@ -75,7 +75,7 @@ def get_bot_settings():
         default_config = {
             'otp_rate': 0.70, 'min_withdraw': 110.0,
             'countries': {}, 'services': {}, 'fake_otp_enabled': False,
-            'refer_commission': 0.10
+            'refer_commission': 0.01
         }
         db.collection('settings').document('config').set(default_config)
         _CACHE["settings"] = default_config
@@ -395,8 +395,8 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
     elif text == "🎁 Refer Commission" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'set_ref_comm'
         config = get_bot_settings()
-        curr_comm = config.get('refer_commission', 0.10)
-        await update.message.reply_text(f"✍️ বর্তমান রেফার কমিশন: `{curr_comm} BDT`\n\nনতুন রেফার কমিশন অ্যামাউন্ট লিখে পাঠান:", reply_markup=get_inline_cancel())
+        curr_comm = config.get('refer_commission', 0.01)
+        await update.message.reply_text(f"✍️ বর্তমান রেফার কমিশন: `{curr_comm} BDT`\n\nনতুন রেফার কমিশন অ্যামাউন্ট লিখে পাঠান (যেমন: 0.01 বা আপনার ইচ্ছেমতো ফেক ভ্যালু):", reply_markup=get_inline_cancel())
     elif text == "⚙️ Add Service" and user_id == ADMIN_ID:
         context.user_data['adm_action'] = 'add_service'
         await update.message.reply_text("✍️ জাস্ট আপনার সার্ভিস এর নামটি লিখে পাঠান。\n\n✍️ যেমন: `Facebook`", reply_markup=get_inline_cancel())
@@ -597,17 +597,21 @@ async def handle_text_inputs(update: Update, context: ContextTypes.DEFAULT_TYPE)
         refs = user_data.get('referrals', [])
         ref_count = len(refs)
         config = get_bot_settings()
-        comm_val = config.get('refer_commission', 0.10)
+        
+        # ফেক ডিসপ্লে করার জন্য আপনার ইচ্ছামতো মান এখানে পরিবর্তন করতে পারবেন, বর্তমানে ১ পয়সা (0.01) একচুয়ালি ইউজার পাবে।
+        # ডিসপ্লেতে দেখানোর জন্য ফেক অ্যামাউন্ট (যেমন: ২০ বা ৩০ পয়সা) দিতে চাইলে নিচের ফিকশন ব্যবহার করুন:
+        display_comm = 0.20  # ইউজারকে দেখাবে ২০ পয়সা বা ৩০ পয়সা (ফেক শো)
+        
         bot_uname = (await context.bot.get_me()).username
         refer_text = (
             f"🎁 ⚠️ **ধামাকা রেফার অফার! আনলিমিটেড ইনকাম করুন!** ⚠️ 🎁\n\n"
             f"👤 **Total Refer:** {ref_count} জন\n"
-            f"😃 **Total Refer Income:** {ref_count * comm_val:.2f} BDT\n\n"
+            f"😃 **Total Refer Income:** {ref_count * display_comm:.2f} BDT\n\n"
             f"🔗 **আপনার রেফার লিংক (কপি করতে ক্লিক করুন):**\n"
             f"`https://t.me/{bot_uname}?start={user_id}`\n\n"
             f"──────────────────────\n"
             f"🔥 **রেফারের সুবিধা:**\n"
-            f"💸 প্রতি সফল ওটিপিতে আপনার রেফারকৃত ইউজারের কাছ থেকে পাবেন লাইফটাইম কমিশন {comm_val} টাকা! এখনই শেয়ার করুন! 🎉"
+            f"💸 প্রতি সফল ওটিপিতে আপনার রেফারকৃত ইউজারের কাছ থেকে পাবেন লাইফটাইম কমিশন {display_comm} টাকা! এখনই শেয়ার করুন! 🎉"
         )
         await update.message.reply_text(refer_text, parse_mode="Markdown")
     elif text == "🧐 Support":
@@ -978,7 +982,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
             if data.get('meta', {}).get('code') == 200 and data['data']['otps']:
                 config = get_bot_settings()
                 otp_rate = config.get('otp_rate', 0.70)
-                ref_comm = config.get('refer_commission', 0.10)
+                ref_comm = config.get('refer_commission', 0.01)  # ১ পয়সা রিয়েল কমিশন
                 bot_username = (await context.bot.get_me()).username
                 
                 for latest_otp in data['data']['otps']:
@@ -1001,15 +1005,12 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                     service_name = order_data.get('service_name', 'Facebook')
                     country_name = order_data.get('country_name', 'Ivory Coast')
                     
-                    # ✅ এখানে প্যানেলের আসল কোড নিখুঁতভাবে রিড করার ফিক্স করা হয়েছে:
-                    # প্রথমে এপিআই থেকে সরাসরি code বা otp ফিল্ড খুঁজবে, না থাকলে মেসেজ থেকে সঠিক ৪-৬ ডিজিটের কোড বের করবে।
                     raw_code_field = str(latest_otp.get('code', '')) or str(latest_otp.get('otp', ''))
                     raw_msg = str(latest_otp.get('message', ''))
                     
                     if raw_code_field and raw_code_field.isdigit():
                         clean_otp = raw_code_field
                     else:
-                        # মেসেজ থেকে ভেরিফিকেশন কোড (সাধারণত ৪ থেকে ৬ ডিজিট) নিখুঁতভাবে এক্সট্রাক্ট করা
                         digits_found = re.findall(r'\b\d{4,6}\b', raw_msg)
                         if digits_found:
                             clean_otp = digits_found[0]
@@ -1057,7 +1058,7 @@ async def check_otp_and_forward(context: ContextTypes.DEFAULT_TYPE):
                         f"{spaced_line}\n\n"
                         f"Otp Code : <code>{clean_otp}</code>\n\n"
                         f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-                        f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
+                        f"🎁 প্রতি ওটিপিতে ফ্রিতে রেফার কমিশন পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
                     )
                     
                     group_buttons = [
@@ -1098,61 +1099,61 @@ async def auto_cleanup_expired_numbers(context: ContextTypes.DEFAULT_TYPE):
         print(f"Error in auto_cleanup_expired_numbers: {e}")
 
 async def fake_otp_generator(context: ContextTypes.DEFAULT_TYPE):
-    config = get_bot_settings()
-    if not config.get('fake_otp_enabled', False): return
+    try:
+        config = get_bot_settings()
+        if config.get('fake_otp_enabled', False):
+            fake_names = ["Sabbir", "Rahat", "Emon", "Tanvir", "Noyon", "Alamin", "Sujon", "Mim", "Riya", "Antor", "Ishrat"]
+            services_dict = config.get('services', {"Facebook": "fb"})
+            services_list = list(services_dict.keys()) if services_dict else ["Facebook"]
+            
+            countries_dict = config.get('countries', {})
+            countries_list = []
+            if countries_dict:
+                for srv, c_dict in countries_dict.items():
+                    if isinstance(c_dict, dict):
+                        countries_list.extend(list(c_dict.keys()))
+                        
+            if not countries_list: 
+                countries_list = ["Ivory Coast", "Guinea", "Nigeria", "Bangladesh"]
+            
+            otp_rate = config.get('otp_rate', 0.70)
+            bot_username = (await context.bot.get_me()).username
+            
+            rand_name = random.choice(fake_names)
+            rand_service = random.choice(services_list)
+            rand_country = random.choice(countries_list)
+            rand_balance = round(random.uniform(10.50, 450.00), 2)
+            rand_otp = str(random.randint(10000, 99999))
 
-    fake_names = ["Sabbir", "Rahat", "Emon", "Tanvir", "Noyon", "Alamin", "Sujon", "Mim", "Riya", "Antor", "Ishrat"]
-    services_dict = config.get('services', {"Facebook": "fb"})
-    services_list = list(services_dict.keys()) if services_dict else ["Facebook"]
-    
-    countries_dict = config.get('countries', {})
-    countries_list = []
-    if countries_dict:
-        for srv, c_dict in countries_dict.items():
-            if isinstance(c_dict, dict):
-                countries_list.extend(list(c_dict.keys()))
-                
-    if not countries_list: 
-        countries_list = ["Ivory Coast", "Guinea", "Nigeria", "Bangladesh"]
-    
-    otp_rate = config.get('otp_rate', 0.70)
-    bot_username = (await context.bot.get_me()).username
-    
-    rand_name = random.choice(fake_names)
-    rand_service = random.choice(services_list)
-    rand_country = random.choice(countries_list)
-    rand_balance = round(random.uniform(10.50, 450.00), 2)
-    rand_otp = str(random.randint(10000, 99999))
+            fake_num = "+" + "".join([str(random.randint(0, 9)) for _ in range(11)])
+            masked_number = "XXXXX" + fake_num[-5:]
 
-    fake_num = "+" + "".join([str(random.randint(0, 9)) for _ in range(11)])
-    masked_number = "XXXXX" + fake_num[-5:]
+            balance_part = f"Balance: {rand_balance:.2f} BDT"
+            add_part = f"+{otp_rate:.2f} BDT"
+            space_count = max(1, 45 - (len(balance_part) + len(add_part)))
+            spaced_line = f"💰 {balance_part}{' ' * space_count}{add_part}"
 
-    balance_part = f"Balance: {rand_balance:.2f} BDT"
-    add_part = f"+{otp_rate:.2f} BDT"
-    space_count = max(1, 45 - (len(balance_part) + len(add_part)))
-    spaced_line = f"💰 {balance_part}{' ' * space_count}{add_part}"
-
-    fake_msg = (
-        f"✨ <b>Now OTP</b>\n"
-        f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-        f"📱 Number: <code>{masked_number}</code>\n"
-        f"🌍 Country: {rand_country}\n"
-        f"🎯 Service: {rand_service}\n"
-        f"👤 User: {rand_name}\n"
-        f"{spaced_line}\n\n"
-        f"Otp Code : <code>{rand_otp}</code>\n\n"
-        f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
-        f"🎁 প্রতি ওটিপিতে ফ্রিতে ০.১০ পয়সা বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
-    )
-    group_buttons = [
-        InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), 
-        InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)
-    ]
-    try: 
-        await context.bot.send_message(chat_id=OTP_GROUP_ID, text=fake_msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup([group_buttons]))
+            fake_msg = (
+                f"✨ <b>Now OTP</b>\n"
+                f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
+                f"📱 Number: <code>{masked_number}</code>\n"
+                f"🌍 Country: {rand_country}\n"
+                f"🎯 Service: {rand_service}\n"
+                f"👤 User: {rand_name}\n"
+                f"{spaced_line}\n\n"
+                f"Otp Code : <code>{rand_otp}</code>\n\n"
+                f"🔹 ━━━━━━━━━━━━━━━━━━━━ 🔹\n"
+                f"🎁 প্রতি ওটিপিতে ফ্রিতে বোনাস পেতে এখনই বন্ধুদের রেফার করুন! 🚀"
+            )
+            group_buttons = [
+                InlineKeyboardButton("🚀 Get Number", url=f"https://t.me/{bot_username}?start=true"), 
+                InlineKeyboardButton("📢 Main Channel", url=MAIN_CHANNEL_URL)
+            ]
+            await context.bot.send_message(chat_id=OTP_GROUP_ID, text=fake_msg, parse_mode="HTML", reply_markup=InlineKeyboardMarkup([group_buttons]))
     except Exception as e:
         print(f"Fake OTP Error: {e}")
     
+    # ফেক ওটিপি পাঠানোর পর রেন্ডম ইন্টারভ্যাল (৬০ থেকে ১৮০ সেকেন্ড পর পর) আবার কল হবে
     next_delay = random.randint(60, 180) 
     context.job_queue.run_once(fake_otp_generator, when=next_delay)
 
@@ -1177,6 +1178,7 @@ def main():
     app.job_queue.run_repeating(check_otp_and_forward, interval=10, first=5)
     app.job_queue.run_repeating(auto_cleanup_expired_numbers, interval=60, first=10)
     
+    # ফেক ওটিপি লুপ চালু করা হলো
     app.job_queue.run_once(fake_otp_generator, when=30)
     
     app.add_handler(CommandHandler("start", start))
@@ -1184,7 +1186,7 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document_upload))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_inputs))
     
-    print("Bot Running successfully with OTP extraction and HTML parse mode fixed...")
+    print("Bot Running successfully with Fake OTP fix and Referral System (1 Paisa actual) integrated...")
     app.run_polling(close_loop=False)
 
 if __name__ == '__main__':
