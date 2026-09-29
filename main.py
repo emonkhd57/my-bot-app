@@ -107,7 +107,11 @@ def get_service_emoji(service_name):
     else: return "🎯"
 
 def get_main_menu(user_id):
-    keyboard = "🎭 Number নিন", "💸 Balance"], ["💰 Withdraw", "🎁 My Referrals"], ["🧐 Support"
+    keyboard = [
+        ["🔢 Number নিন", "💰 Balance"],
+        ["💰 Withdraw", "🎁 My Referrals"],
+        ["🧐 Support"]
+    ]
     if user_id == ADMIN_ID: keyboard.append(["👑 Admin Panel"])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
